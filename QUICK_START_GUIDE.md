@@ -2,6 +2,23 @@
 
 ## ⚡ **Fast Track to Production (5 Steps)**
 
+### **Step 0: Pre-flight Check** (3 minutes) - **IMPORTANT!**
+```bash
+# Verify AWS credentials work before proceeding
+aws sts get-caller-identity
+
+# If you get "InvalidClientTokenId" error:
+# 📖 See: AWS_CREDENTIALS_TROUBLESHOOTING.md for detailed solutions
+
+# Quick fix - reconfigure AWS CLI:
+aws configure
+# Enter your Access Key ID, Secret Key, region (us-east-1), format (json)
+
+# Test again:
+aws sts get-caller-identity
+# Should return your Account ID and User ARN
+```
+
 ### **Step 1: Update Your Account ID** (2 minutes)
 ```bash
 # 1. Edit the GitHub workflow file
@@ -154,6 +171,18 @@ CIS AWS Foundations: 85%    NIST CSF: 78%    PCI-DSS: 92%
 
 ## 🛠️ **Troubleshooting**
 
+### **❌ "InvalidClientTokenId" Error:**
+```bash
+# This is the most common issue - AWS credentials not configured properly
+# 📖 Complete troubleshooting guide: AWS_CREDENTIALS_TROUBLESHOOTING.md
+
+# Quick fixes to try:
+1. aws configure    # Reconfigure credentials
+2. Check: aws sts get-caller-identity
+3. Verify: aws configure list
+4. Clear cache: Remove-Item "$env:USERPROFILE\.aws" -Recurse -Force
+```
+
 ### **"Workflow failed" - Check these:**
 1. ✅ AWS credentials configured correctly in GitHub secrets
 2. ✅ Account ID updated in workflow file  
@@ -230,7 +259,8 @@ Your AWS CSPM system now provides:
 ---
 
 ### **Quick Links:**
-- 📖 [Complete Production Guide](./PRODUCTION_VALIDATION_GUIDE.md)
+- � [AWS Credentials Troubleshooting](./AWS_CREDENTIALS_TROUBLESHOOTING.md) - **Start here if you get authentication errors**
+- �📖 [Complete Production Guide](./PRODUCTION_VALIDATION_GUIDE.md)
 - 📋 [Implementation Summary](./REMAINING_30_PERCENT_COMPLETION_SUMMARY.md)
 - 🧪 [Testing Guide](./TESTING_GUIDE.md)
 - ⚙️ [Configuration Reference](./config/)
