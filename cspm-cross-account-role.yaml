@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CSPM Cross-Account Role for Security Scanning'
+
+Parameters:
+  MasterAccountId:
+    Type: String
+    Default: '872515281040'
+    Description: 'AWS Account ID of the master account that will perform CSPM scanning'
+  
+  MasterUserArn:
+    Type: String
+    Default: 'arn:aws:iam::872515281040:user/vibhor'
+    Description: 'ARN of the user/role in master account that will assume this role'
+  
+  ExternalId:
+    Type: String
+    Default: 'cspm-security-scan'
+    Description: 'External ID for additional security'
+
+Resources:
+  CSPMScanRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CSPMScanRole
+      Description: 'Cross-account role for CSPM security scanning'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref MasterUserArn
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: CSPMScanPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  # IAM Permissions
+                  - 'iam:GetAccountSummary'
+                  - 'iam:ListUsers'
+                  - 'iam:ListRoles'
+                  - 'iam:ListGroups'
+                  - 'iam:ListPolicies'
+                  - 'iam:ListMFADevices'
+                  - 'iam:ListAccessKeys'
+                  - 'iam:GetUser'
+                  - 'iam:GetRole'
+                  - 'iam:GetPolicy'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:ListAttachedUserPolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:ListUserPolicies'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:GetAccountPasswordPolicy'
+                  # EC2 Permissions
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeImages'
+                  - 'ec2:DescribeSecurityGroups'
+                  - 'ec2:DescribeVolumes'
+                  - 'ec2:DescribeSnapshots'
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeRouteTables'
+                  - 'ec2:DescribeNetworkAcls'
+                  - 'ec2:DescribeFlowLogs'
+                  - 'ec2:DescribeRegions'
+                  # S3 Permissions
+                  - 's3:ListAllMyBuckets'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketPolicy'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketEncryption'
+                  - 's3:GetBucketVersioning'
+                  - 's3:GetBucketLogging'
+                  - 's3:GetBucketNotification'
+                  - 's3:GetBucketPublicAccessBlock'
+                  # VPC Permissions
+                  - 'vpc:DescribeVpcs'
+                  - 'vpc:DescribeSubnets'
+                  - 'vpc:DescribeRouteTables'
+                  - 'vpc:DescribeNetworkAcls'
+                  - 'vpc:DescribeFlowLogs'
+                Resource: '*'
+      MaxSessionDuration: 3600
+
+Outputs:
+  RoleArn:
+    Description: 'ARN of the created CSPM scan role'
+    Value: !GetAtt CSPMScanRole.Arn
+  
+  RoleName:
+    Description: 'Name of the created CSPM scan role'
+    Value: !Ref CSPMScanRole
+  
+  ExternalId:
+    Description: 'External ID required for role assumption'
+    Value: !Ref ExternalId
