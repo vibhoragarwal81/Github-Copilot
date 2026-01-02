@@ -263,38 +263,38 @@ jobs:
         # Optionally fail the workflow for critical findings
         # exit 1
 
-  notify:
-    name: Send Notifications
-    runs-on: ubuntu-latest
-    needs: security-scan
-    if: always() && (needs.security-scan.outputs.critical_findings > 0 || needs.security-scan.outputs.high_findings > 5)
+  # notify:
+  #   name: Send Notifications
+  #   runs-on: ubuntu-latest
+  #   needs: security-scan
+  #   if: always() && (needs.security-scan.outputs.critical_findings > 0 || needs.security-scan.outputs.high_findings > 5)
     
-    steps:
-    - name: Send Slack notification for critical findings
-      if: ${{ secrets.SLACK_WEBHOOK_URL }}
-      uses: 8398a7/action-slack@v3
-      with:
-        status: custom
-        custom_payload: |
-          {
-            "channel": "#security-alerts",
-            "username": "AWS CSPM Scanner",
-            "icon_emoji": ":warning:",
-            "attachments": [{
-              "color": "${{ needs.security-scan.outputs.critical_findings > 0 && 'danger' || 'warning' }}",
-              "title": "🚨 AWS Security Scan Alert",
-              "fields": [
-                {"title": "Critical Findings", "value": "${{ needs.security-scan.outputs.critical_findings }}", "short": true},
-                {"title": "High Findings", "value": "${{ needs.security-scan.outputs.high_findings }}", "short": true},
-                {"title": "Total Findings", "value": "${{ needs.security-scan.outputs.total_findings }}", "short": true},
-                {"title": "Scan Status", "value": "${{ needs.security-scan.outputs.scan_status }}", "short": true},
-                {"title": "Repository", "value": "${{ github.repository }}", "short": false},
-                {"title": "Workflow Run", "value": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
-              ]
-            }]
-          }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  #   steps:
+  #   - name: Send Slack notification for critical findings
+  #     if: ${{ secrets.SLACK_WEBHOOK_URL }}
+  #     uses: 8398a7/action-slack@v3
+  #     with:
+  #       status: custom
+  #       custom_payload: |
+  #         {
+  #           "channel": "#security-alerts",
+  #           "username": "AWS CSPM Scanner",
+  #           "icon_emoji": ":warning:",
+  #           "attachments": [{
+  #             "color": "${{ needs.security-scan.outputs.critical_findings > 0 && 'danger' || 'warning' }}",
+  #             "title": "🚨 AWS Security Scan Alert",
+  #             "fields": [
+  #               {"title": "Critical Findings", "value": "${{ needs.security-scan.outputs.critical_findings }}", "short": true},
+  #               {"title": "High Findings", "value": "${{ needs.security-scan.outputs.high_findings }}", "short": true},
+  #               {"title": "Total Findings", "value": "${{ needs.security-scan.outputs.total_findings }}", "short": true},
+  #               {"title": "Scan Status", "value": "${{ needs.security-scan.outputs.scan_status }}", "short": true},
+  #               {"title": "Repository", "value": "${{ github.repository }}", "short": false},
+  #               {"title": "Workflow Run", "value": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+  #             ]
+  #           }]
+  #         }
+  #     env:
+  #       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     
     - name: Send Teams notification
       if: ${{ secrets.TEAMS_WEBHOOK_URL }}
