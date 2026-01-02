@@ -810,7 +810,59 @@ class ReportGenerator:
                     </thead>
                     <tbody id="findings-tbody">"""
 
-        # Generate findings rows (sample - would need actual findings data structure)
+        # Generate findings rows from actual findings data
+        all_findings = []
+        for account_id, account_data in scan_results.items():
+            if 'error' in account_data:
+                continue
+                
+            account_findings = account_data.get('findings', {})
+            for service_name, regions in account_findings.get('services', {}).items():
+                for region, findings in regions.items():
+                    for finding in findings:
+                        # Add account context to finding
+                        finding_with_context = finding.copy()
+                        finding_with_context['account_id'] = account_id
+                        finding_with_context['account_name'] = account_data.get('account_name', 'Unknown')
+                        finding_with_context['service'] = service_name
+                        finding_with_context['region'] = region
+                        all_findings.append(finding_with_context)
+        
+        # Sort findings by severity (Critical first)
+        severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+        all_findings.sort(key=lambda x: severity_order.get(x.get('severity', 'info').lower(), 5))
+        
+        # Generate HTML rows for findings
+        for finding in all_findings:
+            severity = finding.get('severity', 'info').lower()
+            service = finding.get('service', 'unknown')
+            account = f"{finding.get('account_name', 'Unknown')} ({finding.get('account_id', 'unknown')})"
+            resource = finding.get('resource_id', finding.get('resource_name', 'Unknown'))
+            description = finding.get('finding', finding.get('description', 'No description'))
+            compliance_frameworks = finding.get('compliance', [])
+            
+            # Truncate long descriptions
+            if len(description) > 100:
+                description = description[:97] + "..."
+            
+            # Format compliance frameworks
+            if isinstance(compliance_frameworks, list):
+                compliance_str = ", ".join(compliance_frameworks[:3])  # Show first 3
+                if len(compliance_frameworks) > 3:
+                    compliance_str += f" (+{len(compliance_frameworks)-3} more)"
+            else:
+                compliance_str = str(compliance_frameworks) if compliance_frameworks else ""
+            
+            html += f"""
+                        <tr>
+                            <td><span class="severity-badge badge-{severity}">{severity.upper()}</span></td>
+                            <td>{service.upper()}</td>
+                            <td>{account}</td>
+                            <td>{resource}</td>
+                            <td>{description}</td>
+                            <td>{compliance_str}</td>
+                        </tr>"""
+        
         html += """
                     </tbody>
                 </table>
