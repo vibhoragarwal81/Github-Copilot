@@ -1,0 +1,143 @@
+# Default configuration for AWS CSMP Scanner
+
+# AWS Configuration
+aws:
+  default_region: us-east-1
+  regions:
+    - us-east-1
+    - us-west-2
+    - eu-west-1
+    - ap-southeast-1
+    - ap-northeast-1
+  organization_role_name: CSPMScanRole
+  session_duration: 3600  # 1 hour
+  external_id: null  # Set if using external ID for cross-account access
+
+# Service Scanning Configuration
+scanning:
+  services:
+    ec2: true
+    s3: true
+    iam: true
+    vpc: true
+    cloudtrail: true
+    cloudwatch: true
+    config: true
+    security_hub: true
+    rds: true
+    lambda: true
+    
+  behavior:
+    max_concurrent_accounts: 5
+    max_concurrent_regions: 3
+    timeout: 3600  # 1 hour
+    retry_attempts: 3
+    retry_delay: 5
+    
+  # Resource limits to prevent excessive API calls
+  limits:
+    max_ec2_instances_per_region: 1000
+    max_s3_buckets: 500
+    max_iam_users: 200
+    max_iam_roles: 500
+
+# Security Rules Configuration
+rules:
+  directory: src/rules
+  custom_directory: config/custom_rules
+  severity_threshold: LOW  # Minimum severity to report (LOW, MEDIUM, HIGH, CRITICAL)
+  
+  # Enable/disable rule categories
+  categories:
+    encryption: true
+    access_control: true
+    network_security: true
+    logging_monitoring: true
+    backup_recovery: true
+    compliance: true
+
+# Reporting Configuration
+reporting:
+  output_directory: reports
+  template_directory: templates
+  
+  formats:
+    json: true
+    html: true
+    csv: true
+    pdf: false  # Requires additional dependencies
+    
+  # Report customization
+  include_compliant_resources: false
+  include_resource_details: true
+  group_by_severity: true
+  group_by_service: true
+
+# Compliance Frameworks
+compliance:
+  frameworks:
+    - CIS  # CIS AWS Foundations Benchmark
+    - NIST  # NIST Cybersecurity Framework
+    - PCI-DSS  # Payment Card Industry Data Security Standard
+    - SOC2  # Service Organization Control 2
+    - ISO27001  # ISO/IEC 27001
+    - GDPR  # General Data Protection Regulation
+    
+  custom_checks: []
+
+# Logging Configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: null  # Set to file path to enable file logging
+  
+# Performance Configuration
+performance:
+  enable_caching: true
+  cache_ttl: 300  # 5 minutes
+  parallel_processing: true
+  
+# Notification Configuration
+notifications:
+  slack:
+    webhook_url: null  # Set your Slack webhook URL
+    channel: "#security-alerts"
+    
+  email:
+    enabled: false
+    smtp_server: null
+    smtp_port: 587
+    username: null
+    password: null
+    recipients: []
+    
+  github:
+    token: null  # GitHub personal access token
+    repository: null  # owner/repo format
+    create_issues: false
+    labels: ["security", "cspm", "automated"]
+
+# Custom Rules Configuration
+custom_rules:
+  # Example custom rule
+  - name: "Check for unencrypted EBS volumes"
+    service: ec2
+    resource_type: volume
+    severity: HIGH
+    description: "EBS volumes should be encrypted"
+    check: |
+      def check_ebs_encryption(resource):
+          return resource.get('Encrypted', False)
+    
+# Resource Tagging Requirements
+tagging:
+  required_tags:
+    - Environment
+    - Owner
+    - Project
+    - CostCenter
+  
+  # Tag-based exclusions
+  exclusions:
+    - key: "CSPMScan"
+      value: "Exclude"

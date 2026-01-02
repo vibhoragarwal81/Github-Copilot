@@ -1,0 +1,350 @@
+# GitHub Actions workflow for AWS Cloud Security Posture Management scanning.
+# This workflow automatically scans AWS resources and generates security posture reports
+# with interactive HTML dashboards, compliance analysis, and artifact storage.
+
+name: AWS CSPM Security Scan
+
+on:
+  # Run on schedule (weekly on Sundays at 2 AM UTC)
+  schedule:
+    - cron: '0 2 * * 0'
+  
+  # Allow manual triggering with customizable parameters
+  workflow_dispatch:
+    inputs:
+      aws_regions:
+        description: 'AWS regions to scan (comma-separated)'
+        required: true
+        default: 'us-east-1,us-west-2'
+        type: string
+      
+      aws_accounts:
+        description: 'AWS account IDs to scan (comma-separated)'
+        required: true
+        default: '123456789012'  # Update with your account ID
+        type: string
+      
+      services:
+        description: 'AWS services to scan'
+        required: true
+        default: 'iam,ec2,vpc,s3'
+        type: choice
+        options:
+          - 'iam,ec2,vpc,s3'
+          - 'iam,ec2'
+          - 'iam,vpc'
+          - 'ec2,vpc,s3'
+          - 'all'
+      
+      report_formats:
+        description: 'Report output formats'
+        required: true
+        default: 'json,html,csv'
+        type: choice
+        options:
+          - 'html'
+          - 'json,html'
+          - 'json,html,csv'
+          - 'all'
+      
+      compliance_frameworks:
+        description: 'Compliance frameworks to include'
+        required: false
+        default: 'CIS-AWS,NIST-CSF,PCI-DSS'
+        type: string
+      
+      severity_filter:
+        description: 'Minimum severity level to report'
+        required: false
+        default: 'info'
+        type: choice
+        options:
+          - 'critical'
+          - 'high'
+          - 'medium'
+          - 'low'
+          - 'info'
+
+  # Run on push to main branch (for testing changes)
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - '.github/workflows/**'
+      - 'requirements.txt'
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  security-scan:
+    name: AWS Security Posture Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      id-token: write  # For OIDC authentication if using AWS roles
+    
+    outputs:
+      scan_status: ${{ steps.scan.outputs.status }}
+      critical_findings: ${{ steps.scan.outputs.critical_count }}
+      high_findings: ${{ steps.scan.outputs.high_count }}
+      total_findings: ${{ steps.scan.outputs.total_count }}
+      report_path: ${{ steps.scan.outputs.report_path }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+    
+    - name: Set up Python environment
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create output directories
+      run: |
+        mkdir -p reports/scan-${{ github.run_number }}
+        mkdir -p logs
+        mkdir -p artifacts
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        # Optional: Use OIDC for role assumption
+        # role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        # role-session-name: GitHubActions-CSPM-Scan
+    
+    - name: Validate AWS connectivity
+      run: |
+        echo "🔍 Validating AWS connectivity..."
+        aws sts get-caller-identity
+        echo "✅ AWS connection successful"
+    
+    - name: Run unit tests
+      run: |
+        echo "🧪 Running unit tests..."
+        python run_tests.py --unit --coverage
+        echo "✅ Unit tests completed"
+    
+    - name: Execute CSPM security scan
+      id: scan
+      run: |
+        echo "🚀 Starting AWS CSPM security scan..."
+        
+        # Set scan parameters from inputs or defaults
+        REGIONS="${{ github.event.inputs.aws_regions || 'us-east-1' }}"
+        ACCOUNTS="${{ github.event.inputs.aws_accounts || '123456789012' }}"
+        SERVICES="${{ github.event.inputs.services || 'iam,ec2,vpc,s3' }}"
+        FORMATS="${{ github.event.inputs.report_formats || 'json,html' }}"
+        FRAMEWORKS="${{ github.event.inputs.compliance_frameworks || 'CIS-AWS,NIST-CSF' }}"
+        SEVERITY="${{ github.event.inputs.severity_filter || 'info' }}"
+        
+        # Handle 'all' options
+        if [ "$SERVICES" = "all" ]; then
+          SERVICES="iam,ec2,vpc,s3,organization"
+        fi
+        
+        if [ "$FORMATS" = "all" ]; then
+          FORMATS="json,html,csv"
+        fi
+        
+        echo "📋 Scan Configuration:"
+        echo "  Regions: $REGIONS"
+        echo "  Accounts: $ACCOUNTS" 
+        echo "  Services: $SERVICES"
+        echo "  Formats: $FORMATS"
+        echo "  Frameworks: $FRAMEWORKS"
+        echo "  Min Severity: $SEVERITY"
+        
+        # Execute the scan
+        python -m src.main \
+          --regions "$REGIONS" \
+          --accounts "$ACCOUNTS" \
+          --services "$SERVICES" \
+          --output-format "$FORMATS" \
+          --compliance-frameworks "$FRAMEWORKS" \
+          --min-severity "$SEVERITY" \
+          --output-dir "reports/scan-${{ github.run_number }}" \
+          --verbose \
+          2>&1 | tee logs/cspm-scan-${{ github.run_number }}.log
+        
+        # Capture scan results for outputs
+        SCAN_EXIT_CODE=$?
+        if [ $SCAN_EXIT_CODE -eq 0 ]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "status=failed" >> $GITHUB_OUTPUT
+          echo "❌ Scan failed with exit code: $SCAN_EXIT_CODE"
+        fi
+        
+        # Parse scan results if JSON report exists
+        JSON_REPORT=$(find reports/scan-${{ github.run_number }} -name "*.json" | head -1)
+        if [ -f "$JSON_REPORT" ]; then
+          CRITICAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.critical // 0')
+          HIGH_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.high // 0') 
+          TOTAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.total_findings // 0')
+          
+          echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+          echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
+          echo "total_count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "📊 Scan Results Summary:"
+          echo "  Critical findings: $CRITICAL_COUNT"
+          echo "  High findings: $HIGH_COUNT" 
+          echo "  Total findings: $TOTAL_COUNT"
+        else
+          echo "⚠️ No JSON report found for results parsing"
+          echo "critical_count=0" >> $GITHUB_OUTPUT
+          echo "high_count=0" >> $GITHUB_OUTPUT
+          echo "total_count=0" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "report_path=reports/scan-${{ github.run_number }}" >> $GITHUB_OUTPUT
+        echo "✅ CSPM scan completed successfully"
+    
+    - name: Generate scan summary for GitHub
+      run: |
+        echo "## 🛡️ AWS CSPM Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "- **Scan Date**: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Scan ID**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Regions Scanned**: ${{ github.event.inputs.aws_regions || 'us-east-1' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Accounts Scanned**: ${{ github.event.inputs.aws_accounts || '123456789012' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Services**: ${{ github.event.inputs.services || 'iam,ec2,vpc,s3' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Security Findings" >> $GITHUB_STEP_SUMMARY
+        echo "- **Critical**: ${{ steps.scan.outputs.critical_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **High**: ${{ steps.scan.outputs.high_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Total**: ${{ steps.scan.outputs.total_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📁 Report Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "Download the generated reports from the 'Artifacts' section below." >> $GITHUB_STEP_SUMMARY
+        echo "The HTML dashboard provides an interactive view of all findings." >> $GITHUB_STEP_SUMMARY
+    
+    - name: Upload scan reports
+      uses: actions/upload-artifact@v4
+      if: always()  # Upload even if scan failed
+      with:
+        name: cspm-reports-${{ github.run_number }}
+        path: reports/scan-${{ github.run_number }}/
+        retention-days: 30
+        compression-level: 6
+    
+    - name: Upload scan logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: csmp-logs-${{ github.run_number }}
+        path: logs/
+        retention-days: 7
+        compression-level: 6
+    
+    - name: Check for critical findings
+      if: ${{ steps.scan.outputs.critical_count > 0 }}
+      run: |
+        echo "🚨 CRITICAL SECURITY FINDINGS DETECTED!"
+        echo "Critical findings count: ${{ steps.scan.outputs.critical_count }}"
+        echo "Immediate attention required for these security issues."
+        # Optionally fail the workflow for critical findings
+        # exit 1
+
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: always() && (needs.security-scan.outputs.critical_findings > 0 || needs.security-scan.outputs.high_findings > 5)
+    
+    steps:
+    - name: Send Slack notification for critical findings
+      if: ${{ secrets.SLACK_WEBHOOK_URL }}
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          {
+            "channel": "#security-alerts",
+            "username": "AWS CSPM Scanner",
+            "icon_emoji": ":warning:",
+            "attachments": [{
+              "color": "${{ needs.security-scan.outputs.critical_findings > 0 && 'danger' || 'warning' }}",
+              "title": "🚨 AWS Security Scan Alert",
+              "fields": [
+                {"title": "Critical Findings", "value": "${{ needs.security-scan.outputs.critical_findings }}", "short": true},
+                {"title": "High Findings", "value": "${{ needs.security-scan.outputs.high_findings }}", "short": true},
+                {"title": "Total Findings", "value": "${{ needs.security-scan.outputs.total_findings }}", "short": true},
+                {"title": "Scan Status", "value": "${{ needs.security-scan.outputs.scan_status }}", "short": true},
+                {"title": "Repository", "value": "${{ github.repository }}", "short": false},
+                {"title": "Workflow Run", "value": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    
+    - name: Send Teams notification
+      if: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      uses: aliencube/microsoft-teams-actions@v0.8.0
+      with:
+        webhook_uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        title: "🛡️ AWS CSPM Scan Results"
+        summary: "Security findings detected in AWS environment"
+        text: |
+          **AWS CSPM Scan Completed**
+          
+          - **Critical Findings**: ${{ needs.security-scan.outputs.critical_findings }}
+          - **High Findings**: ${{ needs.security-scan.outputs.high_findings }}
+          - **Total Findings**: ${{ needs.security-scan.outputs.total_findings }}
+          - **Status**: ${{ needs.security-scan.outputs.scan_status }}
+          
+          [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        theme_color: ${{ needs.security-scan.outputs.critical_findings > 0 && 'FF0000' || 'FFA500' }}
+
+  upload-to-s3:
+    name: Archive Reports to S3
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: success() && vars.S3_REPORTS_BUCKET
+    
+    steps:
+    - name: Download scan reports
+      uses: actions/download-artifact@v4
+      with:
+        name: cspm-reports-${{ github.run_number }}
+        path: reports/
+    
+    - name: Configure AWS credentials for S3
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.S3_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.S3_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ vars.S3_REGION || env.AWS_DEFAULT_REGION }}
+    
+    - name: Upload reports to S3
+      run: |
+        BUCKET="${{ vars.S3_REPORTS_BUCKET }}"
+        DATE_PATH=$(date +%Y/%m/%d)
+        S3_PATH="s3://$BUCKET/cspm-reports/$DATE_PATH/run-${{ github.run_number }}/"
+        
+        echo "📤 Uploading reports to S3: $S3_PATH"
+        aws s3 cp reports/ "$S3_PATH" --recursive --sse AES256
+        
+        echo "🔗 S3 Upload completed:"
+        aws s3 ls "$S3_PATH" --human-readable
+        
+        # Create a public link if bucket allows
+        echo "📍 Reports archived to: $S3_PATH"

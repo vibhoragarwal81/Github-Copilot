@@ -1,0 +1,15 @@
+boto3>=1.34.0
+botocore>=1.34.0
+aws-sdk-pandas>=3.5.0
+pyyaml>=6.0
+click>=8.0.0
+python-dotenv>=1.0.0
+jinja2>=3.1.0
+tabulate>=0.9.0
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+bandit>=1.7.0
+safety>=2.0.0

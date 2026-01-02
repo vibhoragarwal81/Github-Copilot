@@ -1,0 +1,304 @@
+# ==============================================================================
+# AWS Cloud Security Posture Management (CSPM) Scanner Configuration
+# ==============================================================================
+#
+# This configuration file controls all aspects of the AWS CSPM scanner including
+# which services to scan, compliance frameworks to check against, reporting 
+# formats, and performance settings.
+#
+# IMPORTANT SETUP NOTES:
+# 1. Ensure AWS credentials are configured (aws configure or environment variables)
+# 2. Set up cross-account IAM roles with name specified in 'organization_role_name'
+# 3. Grant necessary permissions for AWS Organizations access
+# 4. Configure GitHub secrets for automated scanning (if using GitHub Actions)
+#
+# QUICK START:
+# - For first-time users: Keep most settings as default
+# - For production: Review regions list, set external_id, configure notifications
+# - For large orgs: Increase timeouts, reduce concurrent limits to avoid rate limits
+#
+# ==============================================================================
+
+# AWS Configuration
+# Controls how the scanner connects to and authenticates with AWS services
+aws:
+  # Default AWS region for global services and fallback
+  default_region: us-east-1
+  
+  # List of AWS regions to scan
+  # Add/remove regions based on your organization's presence
+  # More regions = longer scan times but better coverage
+  regions:
+    - us-east-1      # US East (N. Virginia) - Default region for many services
+    - us-west-2      # US West (Oregon) - Common for West Coast operations
+    - eu-west-1      # Europe (Ireland) - Common for European operations
+    - ap-southeast-1 # Asia Pacific (Singapore) - Common for APAC operations
+    - ap-northeast-1 # Asia Pacific (Tokyo) - Common for East Asian operations
+    # Additional regions you can enable:
+    # - us-east-2      # US East (Ohio)
+    # - us-west-1      # US West (N. California) 
+    # - eu-central-1   # Europe (Frankfurt)
+    # - eu-west-2      # Europe (London)
+    # - eu-west-3      # Europe (Paris)
+    # - ap-northeast-2 # Asia Pacific (Seoul)
+    # - ap-northeast-3 # Asia Pacific (Osaka)
+    # - ap-south-1     # Asia Pacific (Mumbai)
+    # - ap-southeast-2 # Asia Pacific (Sydney)
+    # - ca-central-1   # Canada (Central)
+    # - sa-east-1      # South America (São Paulo)
+  
+  # Name of the IAM role in each account for cross-account access
+  # This role must exist in ALL accounts you want to scan
+  # Must have trust relationship with the scanning account
+  organization_role_name: CSPMScanRole
+  
+  # How long to keep AWS session credentials (in seconds)
+  # Longer sessions reduce re-authentication but increase security risk if compromised
+  session_duration: 3600  # 1 hour - good balance of performance and security
+  
+  # External ID for additional security in cross-account role assumption
+  # Set this to a random string and use the same value in all account role trust policies
+  # SECURITY NOTE: This adds an extra layer of protection against confused deputy attacks
+  external_id: null  # Example: "cspm-external-id-12345" (recommended to set this!)
+
+# Service Scanning Configuration
+# Controls which AWS services are scanned and how the scanning behaves
+scanning:
+  # Which AWS services to include in security scans
+  # Disable services you don't use to speed up scans and reduce API calls
+  services:
+    ec2: true          # EC2 instances, security groups, key pairs, AMIs
+    s3: true           # S3 buckets, policies, encryption, public access blocks
+    iam: true          # Users, roles, policies, access keys, MFA settings
+    vpc: true          # VPCs, subnets, route tables, NACLs, security groups
+    cloudtrail: true   # CloudTrail logging configuration and events
+    cloudwatch: true   # CloudWatch logs, metrics, and monitoring
+    config: true       # AWS Config compliance and configuration history
+    security_hub: true # Security Hub findings and security standards
+    rds: true          # RDS databases, encryption, backups, snapshots
+    lambda: true       # Lambda functions, permissions, environment variables
+    
+  # Scanning behavior and performance tuning
+  behavior:
+    # Maximum number of accounts to scan simultaneously
+    # Higher = faster but more API calls and potential rate limiting
+    # Recommended: 3-5 for small orgs, 1-2 for large orgs
+    max_concurrent_accounts: 5
+    
+    # Maximum number of regions to scan per account simultaneously  
+    # Higher = faster but more memory usage and API calls
+    # Recommended: 2-3 for most cases
+    max_concurrent_regions: 3
+    
+    # Overall timeout for the entire scan process (in seconds)
+    # Adjust based on organization size and number of resources
+    timeout: 3600  # 1 hour - increase for large organizations
+    
+    # Number of times to retry failed API calls
+    # AWS occasionally returns temporary errors - retries help with reliability
+    retry_attempts: 3
+    
+    # Delay between retry attempts (in seconds)
+    # Helps avoid overwhelming AWS APIs
+    retry_delay: 5
+    
+  # Resource limits to prevent excessive API calls and costs
+  # These limits help avoid hitting AWS API rate limits and unexpected charges
+  limits:
+    # Maximum EC2 instances to check per region
+    # Large organizations may need to increase this
+    max_ec2_instances_per_region: 1000
+    
+    # Maximum S3 buckets to check (S3 is global)
+    # Most organizations have < 500 buckets
+    max_s3_buckets: 500
+    
+    # Maximum IAM users to check per account  
+    # Modern orgs use fewer IAM users in favor of federated access
+    max_iam_users: 200
+    
+    # Maximum IAM roles to check per account
+    # Modern applications create many service roles
+    max_iam_roles: 500
+
+# Security Rules Configuration
+# Controls which security rules are applied and how findings are classified
+rules:
+  # Directory containing built-in security rules
+  # These are pre-written rules covering common security issues
+  directory: src/rules
+  
+  # Directory for your custom security rules
+  # Add organization-specific rules here
+  custom_directory: config/custom_rules
+  
+  # Minimum severity level to include in reports
+  # Options: CRITICAL, HIGH, MEDIUM, LOW, INFO
+  # CRITICAL: Immediate action required (public S3 buckets, no MFA on root)
+  # HIGH: Important security issues (unencrypted data, overly broad permissions)
+  # MEDIUM: Good practices (missing tags, unused resources)
+  # LOW: Minor improvements (older TLS versions)
+  # INFO: Informational findings (resource counts, configurations)
+  severity_threshold: LOW  # Set to MEDIUM or HIGH to reduce noise in large environments
+  
+  # Enable/disable entire categories of security rules
+  # Useful for focusing on specific areas or reducing scan time
+  categories:
+    encryption: true         # Encryption at rest and in transit
+    access_control: true     # IAM policies, permissions, authentication
+    network_security: true  # Security groups, NACLs, public access
+    logging_monitoring: true # CloudTrail, CloudWatch, access logging
+    backup_recovery: true    # Backups, versioning, disaster recovery
+    compliance: true         # Compliance framework requirements
+
+# Reporting Configuration
+# Controls how scan results are formatted and where they're saved
+reporting:
+  # Where to save generated reports
+  # Make sure this directory exists and has write permissions
+  output_directory: reports
+  
+  # Directory containing report templates (for HTML/PDF reports)
+  template_directory: templates
+  
+  # Which report formats to generate
+  # Each format serves different purposes:
+  formats:
+    json: true  # Machine-readable format for automation and APIs
+    html: true  # Human-readable dashboard for security teams
+    csv: true   # Spreadsheet format for data analysis in Excel
+    pdf: false  # Executive summary (requires additional dependencies like wkhtmltopdf)
+    
+  # Report content customization
+  # These settings control what information is included in reports
+  include_compliant_resources: false  # Set to true to see what's working well (verbose)
+  include_resource_details: true      # Include resource ARNs, tags, configuration details
+  group_by_severity: true            # Organize findings by severity level (easier review)
+  group_by_service: true             # Organize findings by AWS service (easier remediation)
+
+# Compliance Frameworks
+# Define which compliance standards to evaluate against
+# Each framework includes specific rules and requirements
+compliance:
+  # Standard frameworks to check against
+  # Enable only frameworks relevant to your organization
+  frameworks:
+    - CIS      # CIS AWS Foundations Benchmark - Industry best practices (recommended for all)
+    - NIST     # NIST Cybersecurity Framework - US government standard
+    - PCI-DSS  # Payment Card Industry - Required for payment processing
+    - SOC2     # Service Organization Control 2 - Trust services criteria  
+    - ISO27001 # International information security standard
+    - GDPR     # General Data Protection Regulation - EU privacy law
+    
+  # Custom compliance checks specific to your organization
+  # Add your own compliance requirements here
+  custom_checks: []
+
+# Logging Configuration  
+# Controls how the scanner logs its activities for debugging and auditing
+logging:
+  # Log level - Controls verbosity of logging
+  # DEBUG: Very detailed, useful for troubleshooting (can be overwhelming)
+  # INFO: General information about scan progress (recommended for normal use)
+  # WARNING: Issues that don't stop the scan but may affect results
+  # ERROR: Serious issues that may affect results or cause failures
+  # CRITICAL: Issues that stop the scan entirely
+  level: INFO
+  
+  # Format for log messages - includes timestamp, component, level, and message
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # File to write logs to (null = console only)
+  # Set to a file path to persist logs for later review
+  file: null  # Example: "logs/cspm-scan.log"
+  
+# Performance Configuration
+# Settings to optimize scan speed and resource usage
+performance:
+  # Cache AWS API responses to avoid repeat calls within a scan
+  # Significantly improves performance for large environments
+  enable_caching: true
+  
+  # How long to cache responses (in seconds)
+  # Balance between performance and data freshness
+  cache_ttl: 300  # 5 minutes - good for most use cases
+  
+  # Use multiple processes/threads for scanning
+  # Dramatically improves performance on multi-core systems
+  parallel_processing: true
+
+# Notification Configuration (Optional)
+# Configure how scan results are delivered to your team
+notifications:
+  # Slack integration for real-time alerts
+  slack:
+    webhook_url: null  # Set your Slack webhook URL from app settings
+    channel: "#security-alerts"
+    # Send notifications for findings above this severity
+    min_severity: HIGH
+    
+  # Email notifications
+  email:
+    enabled: false
+    smtp_server: null      # Example: smtp.gmail.com
+    smtp_port: 587
+    username: null         # SMTP username
+    password: null         # SMTP password (use environment variable in production)
+    recipients: []         # List of email addresses
+    
+  # GitHub integration for issue creation
+  github:
+    token: null           # GitHub personal access token with repo access
+    repository: null      # Repository in format "owner/repo"
+    create_issues: false  # Create GitHub issues for HIGH/CRITICAL findings
+    labels: ["security", "cspm", "automated"]
+
+# Custom Rules Configuration (Advanced)
+# Define your own security rules specific to your organization
+custom_rules:
+  # Example custom rule - you can add more following this pattern
+  - name: "Check for unencrypted EBS volumes"
+    service: ec2
+    resource_type: volume
+    severity: HIGH
+    description: "All EBS volumes should be encrypted to protect data at rest"
+    compliance_frameworks: ["PCI-DSS", "HIPAA"]
+    check: |
+      def check_ebs_encryption(resource):
+          return resource.get('Encrypted', False)
+    
+# Resource Tagging Requirements (Optional)  
+# Enforce tagging standards across your organization
+tagging:
+  # Tags that must be present on all resources
+  # Helps with cost allocation, ownership, and compliance
+  required_tags:
+    - Environment   # prod, dev, staging, test
+    - Owner        # Team or individual responsible
+    - Project      # Project or application name
+    - CostCenter   # For billing and cost allocation
+  
+  # Resources with these tags will be excluded from scans
+  # Useful for exempting approved exceptions or test resources
+  exclusions:
+    - key: "CSPMScan"
+      value: "Exclude"
+    - key: "Environment"
+      value: "Sandbox"
+
+# Advanced Configuration (For Power Users)
+advanced:
+  # Custom AWS endpoints (for AWS GovCloud, China regions, or local testing)
+  custom_endpoints: {}
+  
+  # Override default timeouts for specific services (in seconds)
+  service_timeouts:
+    s3: 300      # S3 operations can be slow with many buckets
+    iam: 180     # IAM operations are generally fast
+    ec2: 240     # EC2 can be slow with many instances
+    
+  # Custom retry logic for specific error codes
+  retry_conditions:
+    - "Throttling"
+    - "RequestLimitExceeded"
+    - "ServiceUnavailable"

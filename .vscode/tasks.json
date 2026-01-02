@@ -1,0 +1,31 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run CSPM Scan",
+			"type": "shell",
+			"command": "\"C:/Users/vagarw35/Documents/Technical documents/Technologies/Github/Github Copilot/.venv/Scripts/python.exe\"",
+			"args": [
+				"-m",
+				"src.main",
+				"--help"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Run CSPM Scan",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"-m",
+				"src.main",
+				"--help"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
