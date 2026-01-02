@@ -34,33 +34,18 @@ async def run_organization_scan():
         setup_logger(logging.INFO)
         logger = logging.getLogger(__name__)
         
-        # Create configuration for organization scanning
-        config_data = {
-            'aws': {
-                'regions': ['us-east-1', 'us-west-2', 'eu-west-1'],  # Multiple regions
-                'default_region': 'us-east-1',
-                'organization_role_name': 'CSPMScanRole',  # Cross-account role
-                'session_duration': 3600,
-                'external_id': None
-            },
-            'scanning': {
-                'services': {
-                    'iam': True,
-                    'ec2': True,
-                    's3': True,
-                    'vpc': True
-                },
-                'behavior': {
-                    'max_concurrent_accounts': 5,
-                    'max_concurrent_regions': 3,
-                    'timeout': 3600,
-                    'retry_attempts': 3,
-                    'retry_delay': 5
-                }
-            }
-        }
+        # Load configuration from config file
+        config = Config(config_file='config/config.yaml')
         
-        config = Config(config_data)
+        # Get configuration values with proper handling of nested structure
+        aws_regions = config.get('aws', {}).get('regions', config.get('aws_regions', ['us-east-1']))
+        scanning_services = config.get('scanning', {}).get('services', {'iam': True})
+        
+        logger.info(f"Loaded configuration: regions={aws_regions}, services={list(scanning_services.keys())}")
+        
+        # Set regions in config object for backwards compatibility
+        config.set('aws_regions', aws_regions)
+        config.set('scanning_services', scanning_services)
         
         # Initialize AWS client manager
         aws_client_manager = AWSClientManager(config)
@@ -68,7 +53,8 @@ async def run_organization_scan():
         # Test organization access
         print("🔍 Testing AWS Organizations access...")
         try:
-            org_client = aws_client_manager.get_client('organizations', 'us-east-1')
+            aws_default_region = config.get('aws_default_region', 'us-east-1')
+            org_client = aws_client_manager.get_client('organizations', aws_default_region)
             
             # Get organization information
             try:

@@ -5,27 +5,23 @@ aws:
   default_region: us-east-1
   regions:
     - us-east-1
-    - us-west-2
-    - eu-west-1
-    - ap-southeast-1
-    - ap-northeast-1
   organization_role_name: CSPMScanRole
   session_duration: 3600  # 1 hour
-  external_id: null  # Set if using external ID for cross-account access
+  external_id: cspm-security-scan  # Set external ID for cross-account access
 
 # Service Scanning Configuration
 scanning:
   services:
-    ec2: true
-    s3: true
-    iam: true
-    vpc: true
-    cloudtrail: true
-    cloudwatch: true
-    config: true
-    security_hub: true
-    rds: true
-    lambda: true
+    # ec2: true     # Temporarily disabled - focus on IAM only
+    # s3: true      # Temporarily disabled - focus on IAM only
+    iam: true       # ENABLED - Primary focus for testing
+    # vpc: true     # Temporarily disabled - focus on IAM only
+    # cloudtrail: true    # Temporarily disabled - focus on IAM only
+    # cloudwatch: true    # Temporarily disabled - focus on IAM only
+    # config: true        # Temporarily disabled - focus on IAM only
+    # security_hub: true  # Temporarily disabled - focus on IAM only
+    # rds: true          # Temporarily disabled - focus on IAM only
+    # lambda: true       # Temporarily disabled - focus on IAM only
     
   behavior:
     max_concurrent_accounts: 5

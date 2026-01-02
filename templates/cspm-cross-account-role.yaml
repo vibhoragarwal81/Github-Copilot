@@ -22,7 +22,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: CSPMScanRole
-      Description: 'Cross-account role for CSPM security scanning'
+      Description: 'Cross-account role for CSPM security scanning (Based on AWS Sample)'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -33,14 +33,56 @@ Resources:
             Condition:
               StringEquals:
                 'sts:ExternalId': !Ref ExternalId
+      MaxSessionDuration: 43200
+      ManagedPolicyArns:
+        # AWS Managed Policies for security auditing (same as AWS sample)
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/SecurityAudit"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess"
       Policies:
-        - PolicyName: CSPMScanPolicy
+        - PolicyName: CSPMScanAdditionalPermissions
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # Additional permissions based on AWS sample template
               - Effect: Allow
                 Action:
-                  # IAM Permissions
+                  - 'account:Get*'
+                  - 'appstream:Describe*'
+                  - 'appstream:List*'
+                  - 'backup:List*'
+                  - 'cloudtrail:GetInsightSelectors'
+                  - 'codeartifact:List*'
+                  - 'codebuild:BatchGet*'
+                  - 'dlm:Get*'
+                  - 'drs:Describe*'
+                  - 'ds:Get*'
+                  - 'ds:Describe*'
+                  - 'ds:List*'
+                  - 'ec2:GetEbsEncryptionByDefault'
+                  - 'ecr:Describe*'
+                  - 'ecr:GetRegistryScanningConfiguration'
+                  - 'elasticfilesystem:DescribeBackupPolicy'
+                  - 'glue:GetConnections'
+                  - 'glue:GetSecurityConfiguration*'
+                  - 'glue:SearchTables'
+                  - 'lambda:GetFunction*'
+                  - 'logs:FilterLogEvents'
+                  - 'macie2:GetMacieSession'
+                  - 's3:GetAccountPublicAccessBlock'
+                  - 'shield:DescribeProtection'
+                  - 'shield:GetSubscriptionState'
+                  - 'securityhub:BatchImportFindings'
+                  - 'securityhub:GetFindings'
+                  - 'ssm:GetDocument'
+                  - 'ssm-incidents:List*'
+                  - 'support:Describe*'
+                  - 'tag:GetTagKeys'
+                  - 'wellarchitected:List*'
+                  - 'organizations:DescribeOrganization'
+                  - 'organizations:ListPolicies*'
+                  - 'organizations:DescribePolicy'
+                  - 'organizations:ListDelegatedAdministrators'
+                  # IAM Permissions for comprehensive scanning
                   - 'iam:GetAccountSummary'
                   - 'iam:ListUsers'
                   - 'iam:ListRoles'
@@ -86,17 +128,36 @@ Resources:
                   - 'vpc:DescribeNetworkAcls'
                   - 'vpc:DescribeFlowLogs'
                 Resource: '*'
-      MaxSessionDuration: 3600
+              # API Gateway specific permissions (from AWS sample)
+              - Effect: Allow
+                Action:
+                  - 'apigateway:GET'
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:apigateway:*::/restapis/*"
+                  - !Sub "arn:${AWS::Partition}:apigateway:*::/apis/*"
+      MaxSessionDuration: 43200
 
 Outputs:
-  RoleArn:
-    Description: 'ARN of the created CSPM scan role'
+  CSPMScanRoleArn:
+    Description: 'ARN of the CSPM Cross-Account Scan Role'
     Value: !GetAtt CSPMScanRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMScanRoleArn'
   
-  RoleName:
-    Description: 'Name of the created CSPM scan role'
+  CSPMScanRoleName:
+    Description: 'Name of the CSPM Cross-Account Scan Role'
     Value: !Ref CSPMScanRole
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMScanRoleName'
   
   ExternalId:
     Description: 'External ID required for role assumption'
     Value: !Ref ExternalId
+    Export:
+      Name: !Sub '${AWS::StackName}-ExternalId'
+  
+  MasterAccountId:
+    Description: 'Master account ID that can assume this role'
+    Value: !Ref MasterAccountId
+    Export:
+      Name: !Sub '${AWS::StackName}-MasterAccountId'

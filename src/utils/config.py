@@ -142,11 +142,58 @@ class Config:
                 file_config = yaml.safe_load(f)
             
             if file_config:
-                self._config.update(file_config)
+                # Flatten nested configuration for backwards compatibility
+                self._flatten_config(file_config)
                 self.logger.info(f"Loaded configuration from {config_file}")
         
         except Exception as e:
             self.logger.warning(f"Failed to load config file {config_file}: {str(e)}")
+    
+    def _flatten_config(self, config_dict: Dict, prefix: str = ''):
+        """
+        Flatten nested configuration dictionary.
+        
+        Args:
+            config_dict: Configuration dictionary to flatten
+            prefix: Prefix for keys (used in recursion)
+        """
+        for key, value in config_dict.items():
+            if prefix:
+                full_key = f"{prefix}_{key}"
+            else:
+                full_key = key
+            
+            if isinstance(value, dict):
+                # Handle nested dictionaries
+                if key == 'aws':
+                    # Special handling for AWS config
+                    if 'default_region' in value:
+                        self._config['aws_default_region'] = value['default_region']
+                    if 'regions' in value:
+                        self._config['aws_regions'] = value['regions']
+                    if 'organization_role_name' in value:
+                        self._config['aws_organization_role_name'] = value['organization_role_name']
+                    if 'session_duration' in value:
+                        self._config['aws_session_duration'] = value['session_duration']
+                    if 'external_id' in value:
+                        self._config['aws_external_id'] = value['external_id']
+                elif key == 'scanning':
+                    # Special handling for scanning config
+                    if 'services' in value:
+                        self._config['scanning_services'] = value['services']
+                        # Also set individual scan flags
+                        for service, enabled in value['services'].items():
+                            self._config[f'scan_{service}'] = enabled
+                    if 'behavior' in value:
+                        for behavior_key, behavior_value in value['behavior'].items():
+                            self._config[behavior_key] = behavior_value
+                else:
+                    # Store nested dict as-is and also flatten
+                    self._config[key] = value
+                    self._flatten_config(value, full_key)
+            else:
+                # Store direct values
+                self._config[full_key] = value
     
     def _load_environment_variables(self):
         """Load configuration from environment variables."""

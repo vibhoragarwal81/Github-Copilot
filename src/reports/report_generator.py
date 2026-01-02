@@ -100,18 +100,19 @@ class ReportGenerator:
             if 'error' in account_data:
                 processed_accounts.append({
                     'account_id': account_id,
-                    'account_name': account_data.get('account_info', {}).get('Name', 'Unknown'),
+                    'account_name': account_data.get('account_name', 'Unknown'),
                     'scan_status': 'failed',
                     'error': account_data['error'],
                     'findings_count': 0
                 })
                 continue
             
-            account_findings = account_data.get('findings', {})
+            # Get account findings from the correct structure
+            account_services = account_data.get('services', {})
             account_total_findings = 0
             
             # Process service findings
-            for service_name, regions in account_findings.get('services', {}).items():
+            for service_name, regions in account_services.items():
                 if service_name not in findings_by_service:
                     findings_by_service[service_name] = 0
                 
@@ -134,7 +135,7 @@ class ReportGenerator:
             
             processed_accounts.append({
                 'account_id': account_id,
-                'account_name': account_data.get('account_info', {}).get('Name', 'Unknown'),
+                'account_name': account_data.get('account_name', 'Unknown'),
                 'scan_status': 'completed',
                 'findings_count': account_total_findings,
                 'scan_timestamp': account_data.get('scan_timestamp')
@@ -816,8 +817,9 @@ class ReportGenerator:
             if 'error' in account_data:
                 continue
                 
-            account_findings = account_data.get('findings', {})
-            for service_name, regions in account_findings.get('services', {}).items():
+            # Get services directly from account data (correct structure)
+            account_services = account_data.get('services', {})
+            for service_name, regions in account_services.items():
                 for region, findings in regions.items():
                     for finding in findings:
                         # Add account context to finding
