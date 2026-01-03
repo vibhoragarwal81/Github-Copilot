@@ -19,9 +19,9 @@ on:
         type: string
       
       aws_accounts:
-        description: 'AWS account IDs to scan (comma-separated)'
+        description: 'AWS account IDs to scan (comma-separated) or "organization" for org-wide scan'
         required: true
-        default: '123456789012'  # Update with your account ID
+        default: 'organization'  # Default to organization-wide scan
         type: string
       
       services:
@@ -88,7 +88,7 @@ jobs:
       contents: read
       security-events: write
       actions: read
-      id-token: write  # For OIDC authentication if using AWS roles
+      id-token: write  # Required for OIDC authentication with AWS IAM roles
     
     outputs:
       scan_status: ${{ steps.scan.outputs.status }}
@@ -123,12 +123,22 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
+        # Method 1: OIDC with IAM Role (Recommended - more secure)
+        # Requires AWS IAM OIDC Identity Provider and IAM Role configured
+        role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+        role-session-name: GitHubActions-CSPM-Scan-${{ github.run_number }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+        # Method 2: Access Keys (Fallback - if OIDC not configured)
+        # Will be used only if role-to-assume is not provided
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_DEFAULT_REGION }}
-        # Optional: Use OIDC for role assumption
-        # role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        # role-session-name: GitHubActions-CSPM-Scan
+        
+        # Optional: Specify external ID for additional security
+        role-external-id: ${{ secrets.AWS_EXTERNAL_ID }}
+        
+        # Session duration (default: 1 hour, max: 12 hours for role chaining)
+        role-duration-seconds: 3600
     
     - name: Validate AWS connectivity
       run: |
@@ -172,8 +182,8 @@ jobs:
         echo "  Frameworks: $FRAMEWORKS"
         echo "  Min Severity: $SEVERITY"
         
-        # Execute the scan
-        python -m src.main \
+        # Execute the scan using our workflow-compatible script
+        python scripts/run_workflow_scan.py \
           --regions "$REGIONS" \
           --accounts "$ACCOUNTS" \
           --services "$SERVICES" \
@@ -330,9 +340,14 @@ jobs:
     - name: Configure AWS credentials for S3
       uses: aws-actions/configure-aws-credentials@v4
       with:
+        # Method 1: Use the same OIDC role if it has S3 permissions
+        role-to-assume: ${{ vars.AWS_S3_ROLE_ARN || vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+        role-session-name: GitHubActions-CSPM-S3-${{ github.run_number }}
+        aws-region: ${{ vars.S3_REGION || env.AWS_DEFAULT_REGION }}
+        
+        # Method 2: Separate S3 credentials (fallback)
         aws-access-key-id: ${{ secrets.S3_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.S3_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ vars.S3_REGION || env.AWS_DEFAULT_REGION }}
     
     - name: Upload reports to S3
       run: |
