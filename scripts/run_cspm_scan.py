@@ -11,8 +11,9 @@ import sys
 import logging
 from datetime import datetime
 
-# Add the src directory to the path
-sys.path.append('src')
+# Add the project root to the path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 from src.utils.aws_client import AWSClientManager
 from src.utils.config import Config
