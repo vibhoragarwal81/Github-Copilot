@@ -33,15 +33,19 @@ jobs:
       uses: actions/checkout@v3
     
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: '3.12'
-        cache: 'pip'
+        # cache: 'pip'  # Commented out to avoid GitHub Actions cache service issues
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install boto3 pyyaml jinja2
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          pip install boto3 pyyaml jinja2
+        fi
     
     # Method 1: Test OIDC with IAM Role (preferred)
     - name: Configure AWS credentials via OIDC
@@ -73,22 +77,42 @@ jobs:
       if: github.event.inputs.test_mode == 'quick' || github.event.inputs.test_mode == ''
       run: |
         echo "Running quick CSPM test..."
+        echo "Python version:"
+        python --version
+        echo "Current directory:"
+        pwd
+        echo "Python path:"
+        python -c "import sys; print('\n'.join(sys.path))"
+        echo "Checking if src module is available:"
+        python -c "import src; print('src module imported successfully')" || echo "src module import failed"
+        echo "Checking script syntax:"
+        python -m py_compile scripts/run_workflow_scan.py
+        echo "Testing script help:"
+        python scripts/run_workflow_scan.py --help || echo "Help failed"
+        echo "Running actual scan:"
         python scripts/run_workflow_scan.py \
-          --scan-type single \
-          --output-format html \
-          --account-id current
+          --regions "us-east-1" \
+          --accounts "current" \
+          --services "iam,s3,ec2" \
+          --output-format "html" \
+          --output-dir "reports/test-auth" \
+          --verbose
     
     - name: Organization CSPM Test (if test_mode is detailed)
       if: github.event.inputs.test_mode == 'detailed'
       run: |
         echo "Running organization-wide CSPM test..."
         python scripts/run_workflow_scan.py \
-          --scan-type organization \
-          --output-format html
+          --regions "us-east-1" \
+          --accounts "organization" \
+          --services "iam,s3,ec2,vpc" \
+          --output-format "html" \
+          --output-dir "reports/test-auth-org" \
+          --verbose
     
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: aws-auth-test-results
         path: |

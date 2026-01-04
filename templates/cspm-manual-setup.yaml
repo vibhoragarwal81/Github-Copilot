@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GitHub OIDC Setup - Manual Creation Alternative'
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Description: GitHub organization that will perform CSPM scanning
+    Default: vibhoragarwal81
+    
+  GitHubRepository:
+    Type: String
+    Description: GitHub repository name containing the CSPM scanner
+    Default: Github-Copilot
+    
+  CSPMRoleName:
+    Type: String
+    Description: Name for the IAM role that will be assumed by GitHub Actions
+    Default: CSPMScannerRole
+    
+  OIDCProviderARN:
+    Type: String
+    Description: ARN of the manually created GitHub OIDC provider
+    Default: ""
+    ConstraintDescription: Create the OIDC provider manually and enter its ARN here
+
+Conditions:
+  HasOIDCProvider: !Not [!Equals [!Ref OIDCProviderARN, ""]]
+
+Resources:
+  # IAM Role for GitHub Actions CSPM Scanning (works without OIDC provider in template)
+  CSPMScannerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref CSPMRoleName
+      Description: !Sub "CSPM scanning role for GitHub Actions from ${GitHubOrganization}/${GitHubRepository}"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument: !If
+        - HasOIDCProvider
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Federated: !Ref OIDCProviderARN
+              Action: sts:AssumeRoleWithWebIdentity
+              Condition:
+                StringEquals:
+                  token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                StringLike:
+                  token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrganization}/${GitHubRepository}:*"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: ec2.amazonaws.com  # Temporary - will be updated manually
+              Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+        - arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+      Policies:
+        - PolicyName: CSPMScanningPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Enhanced IAM permissions
+              - Effect: Allow
+                Action:
+                  - iam:GetAccountSummary
+                  - iam:GetCredentialReport
+                  - iam:GenerateCredentialReport
+                  - iam:ListAccountAliases
+                  - iam:GetAccountPasswordPolicy
+                  - iam:ListMFADevices
+                  - iam:SimulatePrincipalPolicy
+                  - sts:GetCallerIdentity
+                  - sts:GetSessionToken
+                Resource: '*'
+              
+              # Security services access
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:GetEventSelectors
+                  - guardduty:ListDetectors
+                  - guardduty:GetDetector
+                  - securityhub:GetEnabledStandards
+                  - securityhub:DescribeHub
+                  - config:DescribeConfigRules
+                  - config:DescribeConfigurationRecorders
+                  - access-analyzer:ListAnalyzers
+                Resource: '*'
+              
+              # Additional services
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:ListKeys
+                  - kms:ListAliases
+                  - secretsmanager:ListSecrets
+                  - secretsmanager:DescribeSecret
+                  - ssm:DescribeParameters
+                  - logs:DescribeLogGroups
+                Resource: '*'
+      Tags:
+        - Key: Purpose
+          Value: CSPMTesting
+        - Key: Environment
+          Value: Test
+
+Outputs:
+  ManualSetupInstructions:
+    Description: Manual setup instructions since automatic OIDC creation may not work
+    Value: !Sub |
+      🛠️  Manual OIDC Provider Setup Required
+      
+      📋 Step 1: Create OIDC Identity Provider
+      1. Go to AWS IAM Console → Identity providers → Add provider
+      2. Provider type: OpenID Connect
+      3. Provider URL: https://token.actions.githubusercontent.com
+      4. Audience: sts.amazonaws.com
+      5. Click "Get thumbprint" (AWS will auto-populate)
+      6. Create provider and note the ARN
+      
+      📋 Step 2: Update Role Trust Policy
+      1. Go to IAM → Roles → ${CSPMRoleName}
+      2. Edit trust relationships
+      3. Replace the trust policy with the correct one (see TrustPolicyJSON output)
+      
+      📋 Step 3: Set GitHub Repository Variable
+      AWS_ROLE_ARN = ${CSPMScannerRole.Arn}
+
+  RoleARNForGitHub:
+    Description: IAM Role ARN to configure in GitHub repository
+    Value: !GetAtt CSPMScannerRole.Arn
+
+  TrustPolicyJSON:
+    Description: Trust policy to manually apply to the role
+    Value: !Sub |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+              "StringEquals": {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+              },
+              "StringLike": {
+                "token.actions.githubusercontent.com:sub": "repo:${GitHubOrganization}/${GitHubRepository}:*"
+              }
+            }
+          }
+        ]
+      }
+
+  OIDCProviderSetupCommands:
+    Description: AWS CLI commands to create OIDC provider (alternative)
+    Value: !Sub |
+      # Create OIDC provider via AWS CLI
+      aws iam create-open-id-connect-provider \
+        --url https://token.actions.githubusercontent.com \
+        --client-id-list sts.amazonaws.com \
+        --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 \
+        --thumbprint-list 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      
+      # Update role trust policy
+      aws iam update-assume-role-policy \
+        --role-name ${CSPMRoleName} \
+        --policy-document file://trust-policy.json
+        
+      # Where trust-policy.json contains the JSON from TrustPolicyJSON output
+
+  NextStepsSimple:
+    Description: Simplified next steps
+    Value: !Sub |
+      ✅ Role created: ${CSPMRoleName}
+      ⚠️  Manual steps needed:
+      1. Create OIDC provider manually (see instructions above)
+      2. Update role trust policy (see TrustPolicyJSON output)
+      3. Set GitHub variable: AWS_ROLE_ARN = ${CSPMScannerRole.Arn}
+      4. Test with GitHub Actions workflow

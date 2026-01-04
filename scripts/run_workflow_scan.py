@@ -36,6 +36,19 @@ class WorkflowCSMPRunner:
         """Parse comma-separated account IDs."""
         if not accounts_str or accounts_str.lower() == 'organization':
             return []  # Will trigger organization scan
+        elif accounts_str.lower() == 'current':
+            # Get current account ID
+            try:
+                import boto3
+                sts = boto3.client('sts')
+                identity = sts.get_caller_identity()
+                current_account = identity['Account']
+                self.logger.info(f"🏠 Using current account: {current_account}")
+                return [current_account]
+            except Exception as e:
+                self.logger.error(f"Failed to get current account: {e}")
+                # Fallback - let the scan determine the account
+                return ['current']
         return [acc.strip() for acc in accounts_str.split(',') if acc.strip()]
     
     def parse_services(self, services_str: str) -> Dict[str, bool]:
@@ -129,12 +142,24 @@ class WorkflowCSMPRunner:
     
     async def run_single_account_scan(self, account_id: str, config_path: str, output_dir: str) -> Dict:
         """Run single account scan using existing script."""
+        # Handle "current" account ID
+        if account_id.lower() == 'current':
+            try:
+                import boto3
+                sts = boto3.client('sts')
+                identity = sts.get_caller_identity()
+                account_id = identity['Account']
+                self.logger.info(f"🏠 Resolved current account: {account_id}")
+            except Exception as e:
+                self.logger.error(f"Failed to resolve current account: {e}")
+                return {'status': 'failed', 'type': 'single', 'account_id': 'unknown', 'error': str(e)}
+        
         self.logger.info(f"🏠 Running single account scan for {account_id}...")
         
         # For single account, we'll use the existing scan script
         # Set environment for the scan
         original_argv = sys.argv
-        
+
         try:
             # Import and run the single account scan function
             scripts_path = os.path.join(self.project_root, 'scripts')
@@ -152,7 +177,7 @@ class WorkflowCSMPRunner:
             return {'status': 'failed', 'error': str(e), 'type': 'single', 'account_id': account_id}
         finally:
             sys.argv = original_argv
-    
+
     def collect_report_metrics(self, output_dir: str) -> Dict:
         """Collect metrics from generated reports for GitHub outputs."""
         metrics = {

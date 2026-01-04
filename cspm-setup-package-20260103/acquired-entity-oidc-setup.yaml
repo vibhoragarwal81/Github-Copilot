@@ -68,7 +68,7 @@ Conditions:
 Resources:
   # GitHub OIDC Identity Provider
   GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
+    Type: AWS::IAM::OIDCIdentityProvider
     Properties:
       Url: https://token.actions.githubusercontent.com
       ThumbprintList:
