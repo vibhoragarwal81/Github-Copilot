@@ -1,7 +1,7 @@
 """
-AWS Cloud Security Posture Management (CSPM) Main Module
+AWS Cloud Security Posture Management (CSMP) Main Module
 
-This module serves as the entry point for the AWS CSPM scanner.
+This module serves as the entry point for the AWS CSMP scanner.
 It orchestrates the scanning process across multiple AWS accounts within an organization.
 """
 
@@ -14,11 +14,25 @@ import sys
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from src.scanners.organization_scanner import OrganizationScanner
-from src.reports.report_generator import ReportGenerator
-from src.utils.aws_client import AWSClientManager
-from src.utils.config import Config
-from src.utils.logger import setup_logger
+# Add the project root and src directory to Python path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+src_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+sys.path.insert(0, src_root)
+
+try:
+    from src.scanners.organization_scanner import OrganizationScanner
+    from src.reports.report_generator import ReportGenerator
+    from src.utils.aws_client import AWSClientManager
+    from src.utils.config import Config
+    from src.utils.logger import setup_logger
+except ImportError:
+    # Fallback for relative imports
+    from scanners.organization_scanner import OrganizationScanner
+    from reports.report_generator import ReportGenerator
+    from utils.aws_client import AWSClientManager
+    from utils.config import Config
+    from utils.logger import setup_logger
 
 
 class CSPMScanner:
