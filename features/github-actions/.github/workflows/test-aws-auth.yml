@@ -1,0 +1,121 @@
+name: Test AWS OIDC Authentication
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode'
+        required: false
+        default: 'quick'
+        type: choice
+        options:
+        - quick
+        - detailed
+  push:
+    paths:
+    - '.github/workflows/test-aws-auth.yml'
+
+# Required permissions for OIDC
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  test-oidc-auth:
+    name: Test OIDC Authentication
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        # cache: 'pip'  # Commented out to avoid GitHub Actions cache service issues
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          pip install boto3 pyyaml jinja2
+        fi
+    
+    # Method 1: Test OIDC with IAM Role (preferred)
+    - name: Configure AWS credentials via OIDC
+      id: aws-oidc
+      if: vars.AWS_ROLE_ARN != ''
+      uses: aws-actions/configure-aws-credentials@v2
+      continue-on-error: true
+      with:
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+        role-session-name: GitHubActions-${{ github.run_number }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        role-duration-seconds: 3600
+    
+    # Method 2: Fallback to Access Keys (if OIDC fails)
+    - name: Configure AWS credentials via Access Keys
+      if: steps.aws-oidc.outcome == 'failure' || vars.AWS_ROLE_ARN == ''
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+    
+    - name: Run AWS Authentication Test
+      run: |
+        echo "Running AWS authentication test..."
+        python scripts/test_aws_auth.py
+    
+    - name: Quick CSPM Test (if test_mode is quick)
+      if: github.event.inputs.test_mode == 'quick' || github.event.inputs.test_mode == ''
+      run: |
+        echo "Running quick CSPM test..."
+        echo "Python version:"
+        python --version
+        echo "Current directory:"
+        pwd
+        echo "Python path:"
+        python -c "import sys; print('\n'.join(sys.path))"
+        echo "Checking if src module is available:"
+        python -c "import src; print('src module imported successfully')" || echo "src module import failed"
+        echo "Checking script syntax:"
+        python -m py_compile scripts/run_workflow_scan.py
+        echo "Testing script help:"
+        python scripts/run_workflow_scan.py --help || echo "Help failed"
+        echo "Running actual scan:"
+        python scripts/run_workflow_scan.py \
+          --regions "us-east-1" \
+          --accounts "current" \
+          --services "iam,s3,ec2" \
+          --output-format "html" \
+          --output-dir "reports/test-auth" \
+          --verbose
+    
+    - name: Organization CSPM Test (if test_mode is detailed)
+      if: github.event.inputs.test_mode == 'detailed'
+      run: |
+        echo "Running organization-wide CSPM test..."
+        python scripts/run_workflow_scan.py \
+          --regions "us-east-1" \
+          --accounts "organization" \
+          --services "iam,s3,ec2,vpc" \
+          --output-format "html" \
+          --output-dir "reports/test-auth-org" \
+          --verbose
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4
+      with:
+        name: aws-auth-test-results
+        path: |
+          reports/*.html
+        retention-days: 7

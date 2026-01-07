@@ -27,12 +27,20 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# Also add the current working directory to ensure shared modules are found
+import os
+current_dir = os.getcwd()
+sys.path.insert(0, current_dir)
+
 try:
     from shared.utils.logger import setup_logger
     from shared.utils.aws_client import AWSClient
     from shared.utils.config import ConfigManager
-except ImportError:
+    setup_logger_available = True
+except ImportError as e:
     # Fallback for basic logging if shared utils not available
+    print(f"Warning: Could not import shared utilities: {e}")
+    setup_logger_available = False
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
 logger = logging.getLogger(__name__)
@@ -384,7 +392,10 @@ Note:
     
     # Set up logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    setup_logger(level=log_level)
+    if setup_logger_available:
+        setup_logger(level=log_level)
+    else:
+        logging.getLogger().setLevel(log_level)
     
     # Create CLI runner
     cli_runner = IAMCloudCLIRunner()

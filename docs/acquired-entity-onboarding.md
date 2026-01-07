@@ -1,12 +1,12 @@
-# Acquired Entity CSPM Onboarding Process
+﻿# Acquired Entity IAMCloud Onboarding Process
 
 ## 🎯 Overview
 
-This streamlined process enables quick CSPM onboarding for newly acquired entities or organizations that need security scanning setup.
+This streamlined process enables quick IAMCloud onboarding for newly acquired entities or organizations that need security scanning setup.
 
 ## 📦 Distribution Package
 
-**Ready-to-distribute package:** `cspm-setup-package-20260103.zip`
+**Ready-to-distribute package:** `IAMCloud-setup-package-2026010    3.zip`
 
 **Package contents:**
 - ✅ `acquired-entity-oidc-setup.yaml` - Self-contained CloudFormation template
@@ -23,7 +23,7 @@ This streamlined process enables quick CSPM onboarding for newly acquired entiti
 python scripts/create_setup_package.py
 
 # Customize if needed (organization names, parameters)
-# Package will be created as: cspm-setup-package-YYYYMMDD.zip
+# Package will be created as: IAMCloud-setup-package-YYYYMMDD.zip
 ```
 
 ### 2. **Package Distribution**
@@ -49,7 +49,7 @@ aws cloudformation create-stack \
 
 ### 4. **Information Exchange**
 **They provide you:**
-- ✅ Role ARN: `arn:aws:iam::123456789012:role/CSPMScannerRole`
+- ✅ Role ARN: `arn:aws:iam::123456789012:role/IAMCloudScannerRole`
 - ✅ AWS Account ID: `123456789012`
 - ✅ Organization name: `New Company Inc`
 - ✅ Technical contact: `admin@newcompany.com`
@@ -57,7 +57,7 @@ aws cloudformation create-stack \
 ### 5. **GitHub Configuration** (Your team - 2 minutes)
 ```bash
 # Add to GitHub repository variables
-AWS_ROLE_ARN_NEWCOMPANY=arn:aws:iam::123456789012:role/CSPMScannerRole
+AWS_ROLE_ARN_NEWCOMPANY=arn:aws:iam::123456789012:role/IAMCloudScannerRole
 
 # Or update workflow to use dynamic role selection
 ```
@@ -135,7 +135,7 @@ aws cloudformation delete-stack --stack-name csmp-oidc-setup
 # {
 #   "organization_name": "NewCompany",
 #   "aws_account_id": "123456789012",
-#   "role_arn": "arn:aws:iam::123456789012:role/CSPMScannerRole"
+#   "role_arn": "arn:aws:iam::123456789012:role/IAMCloudScannerRole"
 # }
 ```
 

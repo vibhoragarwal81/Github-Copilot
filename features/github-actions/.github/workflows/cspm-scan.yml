@@ -2,7 +2,7 @@
 # This workflow automatically scans AWS resources and generates security posture reports
 # with interactive HTML dashboards, compliance analysis, and artifact storage.
 
-name: AWS IAMCloud Security Scan
+name: AWS CSPM Security Scan
 
 on:
   # Run on schedule (weekly on Sundays at 2 AM UTC)
@@ -126,7 +126,7 @@ jobs:
         # Method 1: OIDC with IAM Role (Recommended - more secure)
         # Requires AWS IAM OIDC Identity Provider and IAM Role configured
         role-to-assume: ${{ vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
-        role-session-name: GitHubActions-IAMCloud-Scan-${{ github.run_number }}
+        role-session-name: GitHubActions-CSPM-Scan-${{ github.run_number }}
         aws-region: ${{ env.AWS_DEFAULT_REGION }}
         
         # Method 2: Access Keys (Fallback - if OIDC not configured)
@@ -139,6 +139,7 @@ jobs:
         
         # Session duration (default: 1 hour, max: 12 hours for role chaining)
         role-duration-seconds: 3600
+        # role-session-name: GitHubActions-CSPM-Scan
     
     - name: Validate AWS connectivity
       run: |
@@ -152,14 +153,14 @@ jobs:
         python run_tests.py --unit --coverage
         echo "✅ Unit tests completed"
     
-    - name: Execute IAMCloud security scan
+    - name: Execute CSPM security scan
       id: scan
       run: |
-        echo "🚀 Starting AWS IAMCloud security scan..."
+        echo "🚀 Starting AWS CSPM security scan..."
         
         # Set scan parameters from inputs or defaults
         REGIONS="${{ github.event.inputs.aws_regions || 'us-east-1' }}"
-        ACCOUNTS="${{ github.event.inputs.aws_accounts || '123456789012' }}"
+        ACCOUNTS="${{ github.event.inputs.aws_accounts || 'organization' }}"
         SERVICES="${{ github.event.inputs.services || 'iam,ec2,vpc,s3' }}"
         FORMATS="${{ github.event.inputs.report_formats || 'json,html' }}"
         FRAMEWORKS="${{ github.event.inputs.compliance_frameworks || 'CIS-AWS,NIST-CSF' }}"
@@ -192,9 +193,9 @@ jobs:
           --min-severity "$SEVERITY" \
           --output-dir "reports/scan-${{ github.run_number }}" \
           --verbose \
-          2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log
+          2>&1 | tee logs/cspm-scan-${{ github.run_number }}.log
         
-        # Capture scan results for outputs
+        # Capture scan results for outputs - the script sets these automatically
         SCAN_EXIT_CODE=$?
         if [ $SCAN_EXIT_CODE -eq 0 ]; then
           echo "status=success" >> $GITHUB_OUTPUT
@@ -203,11 +204,8 @@ jobs:
           echo "❌ Scan failed with exit code: $SCAN_EXIT_CODE"
         fi
         
-        # Parse scan results if JSON report exists
-        JSON_REPORT=$(find reports/scan-${{ github.run_number }} -name "*.json" | head -1)
-        if [ -f "$JSON_REPORT" ]; then
-          CRITICAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.critical // 0')
-          HIGH_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.high // 0') 
+        # The workflow script automatically sets the output variables:
+        # - status, total_count, critical_count, high_count, etc. 
           TOTAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.total_findings // 0')
           
           echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
@@ -226,15 +224,15 @@ jobs:
         fi
         
         echo "report_path=reports/scan-${{ github.run_number }}" >> $GITHUB_OUTPUT
-        echo "✅ IAMCloud scan completed successfully"
+        echo "✅ CSPM scan completed successfully"
     
     - name: Generate scan summary for GitHub
       run: |
-        echo "## 🛡️ AWS IAMCloud Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "## 🛡️ AWS CSPM Scan Results" >> $GITHUB_STEP_SUMMARY
         echo "- **Scan Date**: $(date)" >> $GITHUB_STEP_SUMMARY
         echo "- **Scan ID**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Regions Scanned**: ${{ github.event.inputs.aws_regions || 'us-east-1' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Accounts Scanned**: ${{ github.event.inputs.aws_accounts || '123456789012' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Accounts Scanned**: ${{ github.event.inputs.aws_accounts || 'organization' }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Services**: ${{ github.event.inputs.services || 'iam,ec2,vpc,s3' }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Security Findings" >> $GITHUB_STEP_SUMMARY
@@ -250,7 +248,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()  # Upload even if scan failed
       with:
-        name: IAMCloud-reports-${{ github.run_number }}
+        name: cspm-reports-${{ github.run_number }}
         path: reports/scan-${{ github.run_number }}/
         retention-days: 30
         compression-level: 6
@@ -273,56 +271,56 @@ jobs:
         # Optionally fail the workflow for critical findings
         # exit 1
 
-  # notify:
-  #   name: Send Notifications
-  #   runs-on: ubuntu-latest
-  #   needs: security-scan
-  #   if: always() && (needs.security-scan.outputs.critical_findings > 0 || needs.security-scan.outputs.high_findings > 5)
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: always() && (needs.security-scan.outputs.critical_findings > 0 || needs.security-scan.outputs.high_findings > 5)
     
-  #   steps:
-  #   - name: Send Slack notification for critical findings
-  #     if: ${{ secrets.SLACK_WEBHOOK_URL }}
-  #     uses: 8398a7/action-slack@v3
-  #     with:
-  #       status: custom
-  #       custom_payload: |
-  #         {
-  #           "channel": "#security-alerts",
-  #           "username": "AWS IAMCloud Scanner",
-  #           "icon_emoji": ":warning:",
-  #           "attachments": [{
-  #             "color": "${{ needs.security-scan.outputs.critical_findings > 0 && 'danger' || 'warning' }}",
-  #             "title": "🚨 AWS Security Scan Alert",
-  #             "fields": [
-  #               {"title": "Critical Findings", "value": "${{ needs.security-scan.outputs.critical_findings }}", "short": true},
-  #               {"title": "High Findings", "value": "${{ needs.security-scan.outputs.high_findings }}", "short": true},
-  #               {"title": "Total Findings", "value": "${{ needs.security-scan.outputs.total_findings }}", "short": true},
-  #               {"title": "Scan Status", "value": "${{ needs.security-scan.outputs.scan_status }}", "short": true},
-  #               {"title": "Repository", "value": "${{ github.repository }}", "short": false},
-  #               {"title": "Workflow Run", "value": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
-  #             ]
-  #           }]
-  #         }
-  #     env:
-  #       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+    - name: Send Slack notification for critical findings
+      if: ${{ secrets.SLACK_WEBHOOK_URL }}
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          {
+            "channel": "#security-alerts",
+            "username": "AWS CSPM Scanner",
+            "icon_emoji": ":warning:",
+            "attachments": [{
+              "color": "${{ needs.security-scan.outputs.critical_findings > 0 && 'danger' || 'warning' }}",
+              "title": "🚨 AWS Security Scan Alert",
+              "fields": [
+                {"title": "Critical Findings", "value": "${{ needs.security-scan.outputs.critical_findings }}", "short": true},
+                {"title": "High Findings", "value": "${{ needs.security-scan.outputs.high_findings }}", "short": true},
+                {"title": "Total Findings", "value": "${{ needs.security-scan.outputs.total_findings }}", "short": true},
+                {"title": "Scan Status", "value": "${{ needs.security-scan.outputs.scan_status }}", "short": true},
+                {"title": "Repository", "value": "${{ github.repository }}", "short": false},
+                {"title": "Workflow Run", "value": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false}
+              ]
+            }]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     
-    # - name: Send Teams notification
-    #   if: ${{ secrets.TEAMS_WEBHOOK_URL }}
-    #   uses: aliencube/microsoft-teams-actions@v0.8.0
-    #   with:
-    #     webhook_uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
-    #     title: "🛡️ AWS IAMCloud Scan Results"
-    #     summary: "Security findings detected in AWS environment"
-    #     text: |
-    #       **AWS IAMCloud Scan Completed**
+    - name: Send Teams notification
+      if: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      uses: aliencube/microsoft-teams-actions@v0.8.0
+      with:
+        webhook_uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        title: "🛡️ AWS CSPM Scan Results"
+        summary: "Security findings detected in AWS environment"
+        text: |
+          **AWS CSPM Scan Completed**
           
-    #       - **Critical Findings**: ${{ needs.security-scan.outputs.critical_findings }}
-    #       - **High Findings**: ${{ needs.security-scan.outputs.high_findings }}
-    #       - **Total Findings**: ${{ needs.security-scan.outputs.total_findings }}
-    #       - **Status**: ${{ needs.security-scan.outputs.scan_status }}
+          - **Critical Findings**: ${{ needs.security-scan.outputs.critical_findings }}
+          - **High Findings**: ${{ needs.security-scan.outputs.high_findings }}
+          - **Total Findings**: ${{ needs.security-scan.outputs.total_findings }}
+          - **Status**: ${{ needs.security-scan.outputs.scan_status }}
           
-    #       [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-    #     theme_color: ${{ needs.security-scan.outputs.critical_findings > 0 && 'FF0000' || 'FFA500' }}
+          [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        theme_color: ${{ needs.security-scan.outputs.critical_findings > 0 && 'FF0000' || 'FFA500' }}
 
   upload-to-s3:
     name: Archive Reports to S3
@@ -334,7 +332,7 @@ jobs:
     - name: Download scan reports
       uses: actions/download-artifact@v4
       with:
-        name: IAMCloud-reports-${{ github.run_number }}
+        name: cspm-reports-${{ github.run_number }}
         path: reports/
     
     - name: Configure AWS credentials for S3
@@ -342,7 +340,7 @@ jobs:
       with:
         # Method 1: Use the same OIDC role if it has S3 permissions
         role-to-assume: ${{ vars.AWS_S3_ROLE_ARN || vars.AWS_ROLE_ARN || secrets.AWS_ROLE_ARN }}
-        role-session-name: GitHubActions-IAMCloud-S3-${{ github.run_number }}
+        role-session-name: GitHubActions-CSPM-S3-${{ github.run_number }}
         aws-region: ${{ vars.S3_REGION || env.AWS_DEFAULT_REGION }}
         
         # Method 2: Separate S3 credentials (fallback)
@@ -353,7 +351,7 @@ jobs:
       run: |
         BUCKET="${{ vars.S3_REPORTS_BUCKET }}"
         DATE_PATH=$(date +%Y/%m/%d)
-        S3_PATH="s3://$BUCKET/IAMCloud-reports/$DATE_PATH/run-${{ github.run_number }}/"
+        S3_PATH="s3://$BUCKET/cspm-reports/$DATE_PATH/run-${{ github.run_number }}/"
         
         echo "📤 Uploading reports to S3: $S3_PATH"
         aws s3 cp reports/ "$S3_PATH" --recursive --sse AES256
