@@ -189,61 +189,81 @@ jobs:
         echo "  Frameworks: $FRAMEWORKS"
         echo "  Min Severity: $SEVERITY"
         
-        # Execute the scan using our workflow-compatible script
+        # Execute the scan with better single account control
         SCAN_SUCCESS=false
         
-        # First, try to run the scan with the expected output directory
-        python scripts/run_workflow_scan.py \
-          --regions "$REGIONS" \
-          --accounts "$ACCOUNTS" \
-          --services "$SERVICES" \
-          --output-format "$FORMATS" \
-          --compliance-frameworks "$FRAMEWORKS" \
-          --min-severity "$SEVERITY" \
-          --output-dir "reports/scan-${{ github.run_number }}" \
-          --verbose \
-          2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
+        # Create output directory first
+        mkdir -p "reports/scan-${{ github.run_number }}"
         
-        # Check if reports were generated in the default reports/ directory instead
-        if [ "$SCAN_SUCCESS" = "true" ] || [ -d "reports" ]; then
-          echo "🔍 Checking for reports in default reports/ directory..."
+        # For single account scans, use the more direct approach
+        if [ "$ACCOUNTS" != "organization" ]; then
+          echo "🏠 Running single account scan for account: $ACCOUNTS"
+          echo "📋 Account being scanned: $ACCOUNTS"
+          echo "🔐 Current assumed role ARN: $(aws sts get-caller-identity --query 'Arn' --output text)"
           
-          # Create the expected directory structure
-          mkdir -p "reports/scan-${{ github.run_number }}"
-          
-          # Copy any reports from the default location to the expected location
-          if [ -d "reports" ]; then
-            find reports/ -maxdepth 1 -name "*.html" -o -name "*.json" -o -name "*.csv" 2>/dev/null | while read -r file; do
-              if [ -f "$file" ]; then
-                echo "📄 Found report: $file"
-                cp "$file" "reports/scan-${{ github.run_number }}/"
-                SCAN_SUCCESS=true
-              fi
-            done
-          fi
+          # Use the main scanner directly for single account
+          python src/main.py \
+            --regions "$REGIONS" \
+            --services "$SERVICES" \
+            --account-id "$ACCOUNTS" \
+            --output-dir "reports/scan-${{ github.run_number }}" \
+            2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
+        else
+          echo "🏢 Running organization-wide scan..."
+          python scripts/run_workflow_scan.py \
+            --regions "$REGIONS" \
+            --accounts "$ACCOUNTS" \
+            --services "$SERVICES" \
+            --output-format "$FORMATS" \
+            --compliance-frameworks "$FRAMEWORKS" \
+            --min-severity "$SEVERITY" \
+            --output-dir "reports/scan-${{ github.run_number }}" \
+            --verbose \
+            2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
         fi
         
-        # If still no reports found, create a basic status report
+        # Check for reports in both the target directory and default location
+        if [ "$SCAN_SUCCESS" = "true" ] || [ -d "reports" ]; then
+          echo "🔍 Looking for newly generated reports..."
+          
+          # Find the newest report files (generated in the last 5 minutes)
+          find reports/ -maxdepth 1 -name "*.html" -newermt "5 minutes ago" 2>/dev/null | while read -r file; do
+            if [ -f "$file" ]; then
+              echo "📄 Found new report: $file"
+              cp "$file" "reports/scan-${{ github.run_number }}/"
+              SCAN_SUCCESS=true
+            fi
+          done
+          
+          # Also copy JSON files for metrics
+          find reports/ -maxdepth 1 -name "*.json" -newermt "5 minutes ago" 2>/dev/null | while read -r file; do
+            if [ -f "$file" ]; then
+              echo "� Found new JSON report: $file"
+              cp "$file" "reports/scan-${{ github.run_number }}/"
+            fi
+          done
+        fi
+        
+        # If no new reports found, create a status report
         if [ ! -d "reports/scan-${{ github.run_number }}" ] || [ -z "$(ls -A reports/scan-${{ github.run_number }}/ 2>/dev/null)" ]; then
-          echo "⚠️  No reports found, creating status report..."
+          echo "⚠️  No new reports found, creating status report..."
           mkdir -p "reports/scan-${{ github.run_number }}"
           
-          # Create a simple HTML status report
           echo "<h1>IAMCloud Scan Status</h1>" > "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo "<p>Scan execution completed but no reports were found in expected locations.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Scan completed but no new reports generated. Check logs for details.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Target Account: $ACCOUNTS</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           echo "<p>GitHub Run: ${{ github.run_number }}</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           echo "<p>Timestamp: $(date)</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo "<p>Check the logs for scan execution details.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           
           echo "✅ Created status report"
         fi
         
-        # List all files that were actually created for debugging
-        echo "📁 Files in reports directory:"
-        find reports/ -type f 2>/dev/null | head -20 || echo "No report files found"
+        # Debug output
+        echo "📁 Files in reports directory (all):"
+        ls -la reports/ 2>/dev/null || echo "No reports directory"
         
         echo "📁 Files in scan-specific directory:"
-        find "reports/scan-${{ github.run_number }}" -type f 2>/dev/null | head -10 || echo "No scan-specific files found"
+        ls -la "reports/scan-${{ github.run_number }}/" 2>/dev/null || echo "No scan-specific files"
         
         # Capture scan results for outputs
         SCAN_EXIT_CODE=$?
@@ -254,17 +274,20 @@ jobs:
           echo "❌ Scan failed with exit code: $SCAN_EXIT_CODE"
         fi
         
-        # Parse scan results if JSON report exists (check both locations)
+        # Parse scan results from the newest JSON report only
         JSON_REPORT=$(find reports/scan-${{ github.run_number }} -name "*.json" 2>/dev/null | head -1)
         if [ -z "$JSON_REPORT" ]; then
-          JSON_REPORT=$(find reports/ -maxdepth 1 -name "*.json" 2>/dev/null | head -1)
+          # Fallback: Look for the newest JSON in main reports directory
+          JSON_REPORT=$(find reports/ -maxdepth 1 -name "*.json" -newermt "5 minutes ago" 2>/dev/null | head -1)
         fi
         
         if [ -f "$JSON_REPORT" ]; then
-          echo "📊 Found JSON report: $JSON_REPORT"
-          CRITICAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.critical // 0')
-          HIGH_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.high // 0') 
-          TOTAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.total_findings // 0')
+          echo "📊 Found JSON report for metrics: $JSON_REPORT"
+          
+          # Try to extract metrics (handle different JSON structures)
+          CRITICAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.critical // .critical // 0' 2>/dev/null || echo "0")
+          HIGH_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.high // .high // 0' 2>/dev/null || echo "0") 
+          TOTAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.total_findings // .total_findings // .total // 0' 2>/dev/null || echo "0")
           
           echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
           echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
@@ -272,7 +295,14 @@ jobs:
           
           echo "📊 Scan Results Summary:"
           echo "  Critical findings: $CRITICAL_COUNT"
-          echo "  High findings: $HIGH_COUNT" 
+          echo "  High findings: $HIGH_COUNT"
+          echo "  Total findings: $TOTAL_COUNT"
+        else
+          echo "⚠️  No JSON report found for metrics parsing"
+          echo "critical_count=0" >> $GITHUB_OUTPUT
+          echo "high_count=0" >> $GITHUB_OUTPUT
+          echo "total_count=0" >> $GITHUB_OUTPUT
+        fi 
           echo "  Total findings: $TOTAL_COUNT"
         else
           echo "⚠️ No JSON report found for results parsing"
