@@ -192,6 +192,7 @@ jobs:
         # Execute the scan using our workflow-compatible script
         SCAN_SUCCESS=false
         
+        # First, try to run the scan with the expected output directory
         python scripts/run_workflow_scan.py \
           --regions "$REGIONS" \
           --accounts "$ACCOUNTS" \
@@ -203,23 +204,46 @@ jobs:
           --verbose \
           2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
         
-        # If the main scan script failed, create a basic report for artifacts  
-        if [ "$SCAN_SUCCESS" = "false" ]; then
-          echo "⚠️  Main scan failed, creating status report..."
+        # Check if reports were generated in the default reports/ directory instead
+        if [ "$SCAN_SUCCESS" = "true" ] || [ -d "reports" ]; then
+          echo "🔍 Checking for reports in default reports/ directory..."
+          
+          # Create the expected directory structure
+          mkdir -p "reports/scan-${{ github.run_number }}"
+          
+          # Copy any reports from the default location to the expected location
+          if [ -d "reports" ]; then
+            find reports/ -maxdepth 1 -name "*.html" -o -name "*.json" -o -name "*.csv" 2>/dev/null | while read -r file; do
+              if [ -f "$file" ]; then
+                echo "📄 Found report: $file"
+                cp "$file" "reports/scan-${{ github.run_number }}/"
+                SCAN_SUCCESS=true
+              fi
+            done
+          fi
+        fi
+        
+        # If still no reports found, create a basic status report
+        if [ ! -d "reports/scan-${{ github.run_number }}" ] || [ -z "$(ls -A reports/scan-${{ github.run_number }}/ 2>/dev/null)" ]; then
+          echo "⚠️  No reports found, creating status report..."
           mkdir -p "reports/scan-${{ github.run_number }}"
           
           # Create a simple HTML status report
           echo "<h1>IAMCloud Scan Status</h1>" > "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo "<p>Scan execution failed. Check logs for details.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Scan execution completed but no reports were found in expected locations.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           echo "<p>GitHub Run: ${{ github.run_number }}</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           echo "<p>Timestamp: $(date)</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Check the logs for scan execution details.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
           
-          echo "✅ Created execution status report"
+          echo "✅ Created status report"
         fi
         
         # List all files that were actually created for debugging
         echo "📁 Files in reports directory:"
-        find "reports/scan-${{ github.run_number }}" -type f 2>/dev/null | head -20 || echo "No report files found"
+        find reports/ -type f 2>/dev/null | head -20 || echo "No report files found"
+        
+        echo "📁 Files in scan-specific directory:"
+        find "reports/scan-${{ github.run_number }}" -type f 2>/dev/null | head -10 || echo "No scan-specific files found"
         
         # Capture scan results for outputs
         SCAN_EXIT_CODE=$?
@@ -230,9 +254,14 @@ jobs:
           echo "❌ Scan failed with exit code: $SCAN_EXIT_CODE"
         fi
         
-        # Parse scan results if JSON report exists
-        JSON_REPORT=$(find reports/scan-${{ github.run_number }} -name "*.json" | head -1)
+        # Parse scan results if JSON report exists (check both locations)
+        JSON_REPORT=$(find reports/scan-${{ github.run_number }} -name "*.json" 2>/dev/null | head -1)
+        if [ -z "$JSON_REPORT" ]; then
+          JSON_REPORT=$(find reports/ -maxdepth 1 -name "*.json" 2>/dev/null | head -1)
+        fi
+        
         if [ -f "$JSON_REPORT" ]; then
+          echo "📊 Found JSON report: $JSON_REPORT"
           CRITICAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.critical // 0')
           HIGH_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.high // 0') 
           TOTAL_COUNT=$(cat "$JSON_REPORT" | jq -r '.summary.total_findings // 0')
@@ -278,7 +307,11 @@ jobs:
       if: always()  # Upload even if scan failed
       with:
         name: IAMCloud-reports-${{ github.run_number }}
-        path: reports/scan-${{ github.run_number }}/
+        path: |
+          reports/scan-${{ github.run_number }}/
+          reports/*.html
+          reports/*.json
+          reports/*.csv
         retention-days: 30
         if-no-files-found: warn
     
