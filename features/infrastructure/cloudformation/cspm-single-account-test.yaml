@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GitHub OIDC Setup for Single Account CSPM Testing'
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Description: GitHub organization that will perform CSPM scanning
+    Default: vibhoragarwal81
+    
+  GitHubRepository:
+    Type: String
+    Description: GitHub repository name containing the CSPM scanner
+    Default: Github-Copilot
+    
+  CSPMRoleName:
+    Type: String
+    Description: Name for the IAM role that will be assumed by GitHub Actions
+    Default: CSPMScannerRole
+    
+  ScanScope:
+    Type: String
+    Description: Scanning scope for this setup
+    Default: single-account
+    AllowedValues: 
+      - single-account
+      - organization
+    
+  TestMode:
+    Type: String
+    Description: Enable test mode with additional logging and permissions
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+Conditions:
+  IsTestMode: !Equals [!Ref TestMode, 'true']
+  IsOrgMode: !Equals [!Ref ScanScope, 'organization']
+
+Resources:
+  # GitHub OIDC Identity Provider
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Purpose
+          Value: !If [IsTestMode, CSPMTesting, CSPMScanning]
+        - Key: Environment
+          Value: !If [IsTestMode, Test, Production]
+
+  # IAM Role for GitHub Actions CSPM Scanning
+  CSPMScannerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref CSPMRoleName
+      Description: !Sub "CSPM scanning role for ${ScanScope} testing from ${GitHubOrganization}/${GitHubRepository}"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrganization}/${GitHubRepository}:*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+        - arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+        # Add Organizations access only if needed
+        - !If [IsOrgMode, 'arn:aws:iam::aws:policy/AWSOrganizationsReadOnlyAccess', !Ref 'AWS::NoValue']
+      Policies:
+        - PolicyName: CSPMScanningPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Enhanced IAM permissions
+              - Effect: Allow
+                Action:
+                  - iam:GetAccountSummary
+                  - iam:GetCredentialReport
+                  - iam:GenerateCredentialReport
+                  - iam:ListAccountAliases
+                  - iam:GetAccountPasswordPolicy
+                  - iam:ListMFADevices
+                  - iam:ListSigningCertificates
+                  - iam:ListSSHPublicKeys
+                  - iam:GetLoginProfile
+                  - iam:SimulatePrincipalPolicy
+                Resource: '*'
+              
+              # Organizations access (only if org mode)
+              - !If
+                - IsOrgMode
+                - Effect: Allow
+                  Action:
+                    - organizations:ListAccounts
+                    - organizations:DescribeOrganization
+                    - organizations:DescribeAccount
+                    - organizations:ListRoots
+                    - organizations:ListChildren
+                  Resource: '*'
+                - !Ref AWS::NoValue
+              
+              # Cross-account access (only if org mode)  
+              - !If
+                - IsOrgMode
+                - Effect: Allow
+                  Action:
+                    - sts:AssumeRole
+                  Resource: 
+                    - !Sub 'arn:aws:iam::*:role/CSPMScanRole'
+                  Condition:
+                    StringEquals:
+                      'sts:ExternalId': 'CSPM-Scanner'
+                - !Ref AWS::NoValue
+              
+              # Security services access
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:GetEventSelectors
+                  - guardduty:ListDetectors
+                  - guardduty:GetDetector
+                  - guardduty:ListFindings
+                  - securityhub:GetEnabledStandards
+                  - securityhub:DescribeHub
+                  - config:DescribeConfigRules
+                  - config:DescribeConfigurationRecorders
+                  - inspector:DescribeAssessmentRuns
+                  - access-analyzer:ListAnalyzers
+                Resource: '*'
+              
+              # Additional services
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:ListKeys
+                  - kms:ListAliases
+                  - secretsmanager:ListSecrets
+                  - secretsmanager:DescribeSecret
+                  - ssm:DescribeParameters
+                  - logs:DescribeLogGroups
+                Resource: '*'
+              
+              # Test mode: Allow additional debugging permissions
+              - !If
+                - IsTestMode  
+                - Effect: Allow
+                  Action:
+                    - sts:GetCallerIdentity
+                    - sts:GetSessionToken
+                    - iam:GetUser
+                    - iam:GetRole
+                    - iam:ListAttachedRolePolicies
+                    - iam:GetRolePolicy
+                  Resource: '*'
+                - !Ref AWS::NoValue
+      Tags:
+        - Key: Purpose
+          Value: !If [IsTestMode, CSPMTesting, CSPMScanning]
+        - Key: ScanScope
+          Value: !Ref ScanScope
+        - Key: Environment
+          Value: !If [IsTestMode, Test, Production]
+
+Outputs:
+  TestingInstructions:
+    Description: Instructions for testing the OIDC setup
+    Value: !Sub |
+      🧪 CSPM OIDC Testing Setup Complete!
+      
+      📋 Testing Steps:
+      1. Set GitHub repository variable: AWS_ROLE_ARN = ${CSPMScannerRole.Arn}
+      2. Run: python scripts/test_aws_auth.py (locally won't work without creds)
+      3. Run GitHub Actions workflow to test OIDC authentication
+      4. Run single account scan: --accounts current
+      
+      🎯 This setup is configured for: ${ScanScope}
+      ⚠️  Test mode enabled: ${TestMode}
+
+  RoleARNForGitHub:
+    Description: IAM Role ARN to configure in GitHub repository
+    Value: !GetAtt CSPMScannerRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMRoleArn'
+
+  OIDCProviderArn:
+    Description: GitHub OIDC Identity Provider ARN
+    Value: !Ref GitHubOIDCProvider
+
+  ScanCommand:
+    Description: Command to run single account scan
+    Value: !Sub |
+      # Single account scan
+      python scripts/run_workflow_scan.py --scan-type single --account-id current
+      
+      # Or specific account
+      python scripts/run_workflow_scan.py --scan-type single --account-id ${AWS::AccountId}
+
+  NextSteps:
+    Description: What to do after setup
+    Value: |
+      1. Copy the Role ARN and set as GitHub repository variable
+      2. Run the test authentication workflow in GitHub Actions  
+      3. Verify OIDC authentication works without local AWS credentials
+      4. Run a single account CSPM scan to validate permissions
+      5. Check the generated reports in reports/ directory
+
+  CleanupCommand:
+    Description: How to clean up this test setup
+    Value: !Sub |
+      # Delete this CloudFormation stack to remove all resources:
+      aws cloudformation delete-stack --stack-name ${AWS::StackName}

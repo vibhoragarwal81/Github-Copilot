@@ -1,0 +1,322 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GitHub OIDC Setup for New AWS Organization - CSPM Scanner Integration'
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Description: GitHub organization that will perform CSPM scanning
+    Default: vibhoragarwal81
+    ConstraintDescription: Enter the GitHub organization or username that owns the CSPM scanner repository
+    
+  GitHubRepository:
+    Type: String
+    Description: GitHub repository name containing the CSPM scanner
+    Default: Github-Copilot
+    ConstraintDescription: Enter the exact repository name (case-sensitive)
+    
+  CSPMRoleName:
+    Type: String
+    Description: Name for the IAM role that will be assumed by GitHub Actions
+    Default: CSPMScannerRole
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9\-]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and hyphens
+    
+  AllowedBranches:
+    Type: String
+    Description: Restrict access to specific branch or allow all branches
+    Default: main
+    AllowedValues: 
+      - main
+      - all-branches
+    ConstraintDescription: Choose 'main' for production security or 'all-branches' for development flexibility
+    
+  OrganizationName:
+    Type: String
+    Description: Your organization name (for tagging and identification)
+    Default: AcquiredEntity
+    ConstraintDescription: Enter a descriptive name for your organization (used in resource tags)
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "GitHub Integration Configuration"
+        Parameters:
+          - GitHubOrganization
+          - GitHubRepository
+          - AllowedBranches
+      - Label:
+          default: "AWS IAM Configuration"
+        Parameters:
+          - CSPMRoleName
+          - OrganizationName
+    ParameterLabels:
+      GitHubOrganization:
+        default: "GitHub Organization/Username"
+      GitHubRepository:
+        default: "CSMP Scanner Repository Name"
+      CSPMRoleName:
+        default: "IAM Role Name for CSMP Scanning"
+      AllowedBranches:
+        default: "Branch Access Control"
+      OrganizationName:
+        default: "Your Organization Name"
+
+Conditions:
+  AllowAllBranches: !Equals [!Ref AllowedBranches, 'all-branches']
+
+Resources:
+  # GitHub OIDC Identity Provider
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Purpose
+          Value: CSPMScanning
+        - Key: GitHubOrg
+          Value: !Ref GitHubOrganization
+        - Key: Repository
+          Value: !Sub "${GitHubOrganization}/${GitHubRepository}"
+        - Key: Organization
+          Value: !Ref OrganizationName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # IAM Role for GitHub Actions CSPM Scanning
+  CSPMScannerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref CSPMRoleName
+      Description: !Sub "CSPM scanning role for GitHub Actions from ${GitHubOrganization}/${GitHubRepository}"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !If
+                  - AllowAllBranches
+                  - !Sub "repo:${GitHubOrganization}/${GitHubRepository}:*"
+                  - !Sub "repo:${GitHubOrganization}/${GitHubRepository}:ref:refs/heads/main"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+        - arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+      Policies:
+        - PolicyName: CSPMOrganizationScanningPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # AWS Organizations comprehensive access
+              - Effect: Allow
+                Action:
+                  - organizations:ListAccounts
+                  - organizations:ListAccountsForParent
+                  - organizations:ListRoots
+                  - organizations:ListOrganizationalUnitsForParent
+                  - organizations:DescribeOrganization
+                  - organizations:DescribeAccount
+                  - organizations:DescribeOrganizationalUnit
+                  - organizations:ListParents
+                  - organizations:ListChildren
+                  - organizations:ListCreateAccountStatus
+                  - organizations:ListHandshakesForOrganization
+                  - organizations:ListPolicies
+                  - organizations:ListPoliciesForTarget
+                  - organizations:ListTargetsForPolicy
+                  - organizations:DescribePolicy
+                Resource: '*'
+              
+              # Cross-account role assumption (for member accounts)
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: 
+                  - !Sub 'arn:aws:iam::*:role/CSPMScanRole'
+                  - !Sub 'arn:aws:iam::*:role/OrganizationAccountAccessRole'
+                  - !Sub 'arn:aws:iam::*:role/CrossAccountAuditRole'
+                Condition:
+                  StringEquals:
+                    'sts:ExternalId': 'CSPM-Scanner'
+              
+              # Enhanced IAM permissions for comprehensive scanning
+              - Effect: Allow
+                Action:
+                  - iam:GetAccountSummary
+                  - iam:GetCredentialReport
+                  - iam:GenerateCredentialReport
+                  - iam:ListAccountAliases
+                  - iam:GetAccountPasswordPolicy
+                  - iam:ListUsers
+                  - iam:ListRoles
+                  - iam:ListGroups
+                  - iam:ListPolicies
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListAttachedGroupPolicies
+                  - iam:GetUser
+                  - iam:GetRole
+                  - iam:GetGroup
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                  - iam:GetUserPolicy
+                  - iam:GetRolePolicy
+                  - iam:GetGroupPolicy
+                  - iam:ListUserPolicies
+                  - iam:ListRolePolicies
+                  - iam:ListGroupPolicies
+                  - iam:GetAccessKeyLastUsed
+                  - iam:ListAccessKeys
+                  - iam:ListMFADevices
+                  - iam:ListSigningCertificates
+                  - iam:ListSSHPublicKeys
+                  - iam:GetLoginProfile
+                  - iam:ListServiceSpecificCredentials
+                  - iam:SimulatePrincipalPolicy
+                Resource: '*'
+              
+              # Security services access
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:GetEventSelectors
+                  - cloudtrail:GetInsightSelectors
+                  - cloudtrail:ListTags
+                  - cloudtrail:ListPublicKeys
+                  - guardduty:ListDetectors
+                  - guardduty:GetDetector
+                  - guardduty:ListFindings
+                  - guardduty:GetFindings
+                  - securityhub:GetEnabledStandards
+                  - securityhub:GetFindings
+                  - securityhub:DescribeHub
+                  - securityhub:GetInsights
+                  - config:DescribeConfigRules
+                  - config:DescribeConfigurationRecorders
+                  - config:DescribeDeliveryChannels
+                  - config:GetComplianceDetailsByConfigRule
+                  - inspector:DescribeAssessmentRuns
+                  - inspector:ListFindings
+                  - access-analyzer:ListAnalyzers
+                  - access-analyzer:ListFindings
+                Resource: '*'
+              
+              # Additional services for comprehensive security assessment
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListAliases
+                  - kms:ListGrants
+                  - kms:ListKeys
+                  - secretsmanager:ListSecrets
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetResourcePolicy
+                  - ssm:DescribeParameters
+                  - ssm:DescribeInstanceInformation
+                  - ssm:DescribeInstancePatches
+                  - ssm:GetInventory
+                  - support:DescribeTrustedAdvisorChecks
+                  - support:DescribeTrustedAdvisorCheckResult
+                Resource: '*'
+              
+              # Logs access for security analysis
+              - Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:DescribeMetricFilters
+                  - logs:DescribeSubscriptionFilters
+                Resource: '*'
+      Tags:
+        - Key: Purpose
+          Value: CSPMScanning
+        - Key: GitHubOrg
+          Value: !Ref GitHubOrganization
+        - Key: Repository
+          Value: !Sub "${GitHubOrganization}/${GitHubRepository}"
+        - Key: Organization
+          Value: !Ref OrganizationName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: SecurityRole
+          Value: ReadOnlyAudit
+
+Outputs:
+  SetupInstructions:
+    Description: Instructions for completing the GitHub integration
+    Value: !Sub |
+      🎉 CSPM OIDC Setup Complete!
+      
+      📋 Next Steps:
+      1. Copy the Role ARN below and provide it to the CSPM team
+      2. They will configure their GitHub repository with this role
+      3. CSMP scanning will begin automatically via GitHub Actions
+      
+      ⚠️  Share only the Role ARN - never share AWS access keys!
+
+  RoleARNForGitHub:
+    Description: IAM Role ARN to provide to CSMP scanning team
+    Value: !GetAtt CSPMScannerRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMRoleArn'
+
+  OIDCProviderArn:
+    Description: GitHub OIDC Identity Provider ARN (for reference)
+    Value: !Ref GitHubOIDCProvider
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderArn'
+
+  TrustPolicyDetails:
+    Description: Repository and branch access configured
+    Value: !Sub |
+      Repository: ${GitHubOrganization}/${GitHubRepository}
+      Branch Access: ${AllowedBranches}
+      Subject Pattern: ${SubjectPattern}
+    Export:
+      Name: !Sub '${AWS::StackName}-TrustDetails'
+
+  SecurityNote:
+    Description: Important security information
+    Value: |
+      🔐 This role provides read-only access for security scanning.
+      🎯 Access is restricted to the specified GitHub repository only.
+      ⏰ Session duration is limited to 1 hour maximum.
+      🔍 All actions are logged in CloudTrail for audit purposes.
+
+  ContactInformation:
+    Description: Information to share with CSPM scanning team
+    Value: !Sub |
+      Organization: ${OrganizationName}
+      AWS Account ID: ${AWS::AccountId}
+      Region: ${AWS::Region}
+      Role Name: ${CSPMRoleName}
+      Setup Date: ${AWS::Region}
+      
+      Please provide this Role ARN to enable CSPM scanning:
+      ${CSPMScannerRole.Arn}
+
+  SubjectPattern:
+    Description: The subject pattern used in the trust policy
+    Value: !If
+      - AllowAllBranches
+      - !Sub "repo:${GitHubOrganization}/${GitHubRepository}:*"
+      - !Sub "repo:${GitHubOrganization}/${GitHubRepository}:ref:refs/heads/main"
+
+  TemplateVersion:
+    Description: Template version for tracking
+    Value: "1.0.0-AcquiredEntity-2026.01.03"

@@ -1,0 +1,266 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cross-Account CSPM Scan Role for Member Accounts'
+
+Parameters:
+  MasterAccountId:
+    Type: String
+    Description: AWS Account ID of the master/organization account
+    Default: '871007551509'
+    AllowedPattern: '[0-9]{12}'
+    ConstraintDescription: Must be a 12-digit AWS account ID
+    
+  GitHubActionsRoleName:
+    Type: String
+    Description: Name of the GitHub Actions role in the master account
+    Default: GitHubActionsCSPMRole
+    
+  CSPMScanRoleName:
+    Type: String
+    Description: Name for the CSPM scan role in this account
+    Default: CSPMScanRole
+    
+  ExternalId:
+    Type: String
+    Description: External ID for additional security
+    Default: CSPM-Scanner
+    NoEcho: true
+
+Resources:
+  # Cross-account CSPM scan role
+  CSPMScanRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref CSPMScanRoleName
+      Description: 'Cross-account role for CSPM scanning from GitHub Actions'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Allow the GitHub Actions role from master account to assume this role
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${MasterAccountId}:role/${GitHubActionsRoleName}'
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+              IpAddress:
+                'aws:SourceIp': 
+                  # GitHub Actions IP ranges (update as needed)
+                  - '140.82.112.0/20'
+                  - '143.55.64.0/20'
+                  - '185.199.108.0/22'
+                  - '192.30.252.0/22'
+                  - '20.201.28.151/32'
+                  - '20.205.243.166/32'
+                  - '20.87.225.212/32'
+                  - '20.248.137.48/32'
+                  - '20.207.73.82/32'
+                  - '20.27.177.113/32'
+                  - '20.200.245.247/32'
+                  - '20.233.54.53/32'
+                  - '20.201.28.152/32'
+                  - '20.205.243.160/32'
+                  - '20.87.225.213/32'
+                  - '20.248.137.49/32'
+                  - '20.207.73.83/32'
+                  - '20.27.177.114/32'
+                  - '20.200.245.248/32'
+                  - '20.233.54.52/32'
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+        - arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+      Policies:
+        - PolicyName: CSPMEnhancedReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Enhanced IAM access for comprehensive security scanning
+              - Effect: Allow
+                Action:
+                  - iam:GetAccountSummary
+                  - iam:GetCredentialReport
+                  - iam:GenerateCredentialReport
+                  - iam:ListAccountAliases
+                  - iam:GetAccountPasswordPolicy
+                  - iam:GetAccessKeyLastUsed
+                  - iam:ListMFADevices
+                  - iam:ListSigningCertificates
+                  - iam:ListSSHPublicKeys
+                  - iam:GetLoginProfile
+                  - iam:ListServiceSpecificCredentials
+                  - iam:SimulatePrincipalPolicy
+                Resource: '*'
+              
+              # CloudTrail enhanced access
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:GetEventSelectors
+                  - cloudtrail:GetInsightSelectors
+                  - cloudtrail:ListTags
+                  - cloudtrail:ListPublicKeys
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: '*'
+              
+              # Config service enhanced access
+              - Effect: Allow
+                Action:
+                  - config:DescribeConfigRules
+                  - config:DescribeConfigurationRecorders
+                  - config:DescribeConfigurationRecorderStatus
+                  - config:DescribeDeliveryChannels
+                  - config:DescribeDeliveryChannelStatus
+                  - config:GetComplianceDetailsByConfigRule
+                  - config:GetComplianceDetailsByResource
+                  - config:GetResourceConfigHistory
+                  - config:ListDiscoveredResources
+                Resource: '*'
+              
+              # GuardDuty access
+              - Effect: Allow
+                Action:
+                  - guardduty:ListDetectors
+                  - guardduty:GetDetector
+                  - guardduty:ListFindings
+                  - guardduty:GetFindings
+                  - guardduty:ListMembers
+                  - guardduty:GetMember
+                Resource: '*'
+              
+              # SecurityHub access
+              - Effect: Allow
+                Action:
+                  - securityhub:GetEnabledStandards
+                  - securityhub:GetFindings
+                  - securityhub:DescribeHub
+                  - securityhub:GetInsights
+                  - securityhub:GetComplianceStatus
+                Resource: '*'
+              
+              # Inspector access
+              - Effect: Allow
+                Action:
+                  - inspector:DescribeAssessmentRuns
+                  - inspector:DescribeAssessmentTargets
+                  - inspector:DescribeAssessmentTemplates
+                  - inspector:DescribeFindings
+                  - inspector:ListAssessmentRuns
+                  - inspector:ListAssessmentTargets
+                  - inspector:ListAssessmentTemplates
+                  - inspector:ListFindings
+                Resource: '*'
+              
+              # Access Analyzer
+              - Effect: Allow
+                Action:
+                  - access-analyzer:ListAnalyzers
+                  - access-analyzer:ListFindings
+                  - access-analyzer:GetFinding
+                  - access-analyzer:GetAnalyzer
+                Resource: '*'
+              
+              # Trusted Advisor access
+              - Effect: Allow
+                Action:
+                  - support:DescribeCases
+                  - support:DescribeServices
+                  - support:DescribeSeverityLevels
+                  - support:DescribeTrustedAdvisorChecks
+                  - support:DescribeTrustedAdvisorCheckResult
+                  - support:DescribeTrustedAdvisorCheckSummaries
+                Resource: '*'
+              
+              # Cost and billing insights
+              - Effect: Allow
+                Action:
+                  - ce:GetCostAndUsage
+                  - ce:GetUsageReport
+                  - ce:GetReservationCoverage
+                  - ce:GetReservationPurchaseRecommendation
+                  - ce:GetReservationUtilization
+                  - ce:GetCostCategories
+                Resource: '*'
+              
+              # Systems Manager access for patch compliance
+              - Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                  - ssm:DescribeInstancePatches
+                  - ssm:DescribeInstancePatchStates
+                  - ssm:DescribePatchBaselines
+                  - ssm:DescribePatchGroups
+                  - ssm:GetInventory
+                  - ssm:ListComplianceItems
+                  - ssm:ListComplianceSummaries
+                Resource: '*'
+              
+              # Additional security-relevant services
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListAliases
+                  - kms:ListGrants
+                  - kms:ListKeys
+                  - kms:ListKeyPolicies
+                  - kms:ListResourceTags
+                Resource: '*'
+              
+              # Secrets Manager access
+              - Effect: Allow
+                Action:
+                  - secretsmanager:ListSecrets
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetResourcePolicy
+                Resource: '*'
+              
+              # Parameter Store access  
+              - Effect: Allow
+                Action:
+                  - ssm:DescribeParameters
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                  - ssm:GetParameter
+                Resource: '*'
+                
+      Tags:
+        - Key: Purpose
+          Value: CSPMCrossAccountScanning
+        - Key: MasterAccount
+          Value: !Ref MasterAccountId
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: SecurityRole
+          Value: ReadOnly
+
+Outputs:
+  CSPMScanRoleArn:
+    Description: ARN of the CSMP Scan Role
+    Value: !GetAtt CSPMScanRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMScanRoleArn'
+  
+  CSPMScanRoleName:
+    Description: Name of the CSPM Scan Role
+    Value: !Ref CSPMScanRole
+    Export:
+      Name: !Sub '${AWS::StackName}-CSPMScanRoleName'
+  
+  TrustRelationship:
+    Description: Principal that can assume this role
+    Value: !Sub 'arn:aws:iam::${MasterAccountId}:role/${GitHubActionsRoleName}'
+  
+  ExternalIdUsed:
+    Description: External ID configured for this role
+    Value: !Ref ExternalId
+  
+  DeploymentInstructions:
+    Description: Instructions for using this role
+    Value: |
+      This role can now be assumed by the GitHub Actions role in the master account.
+      Use this ARN in your CSPM scanning scripts to access this member account.
+      The role provides comprehensive read-only access for security posture assessment.
