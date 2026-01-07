@@ -189,46 +189,37 @@ jobs:
         echo "  Frameworks: $FRAMEWORKS"
         echo "  Min Severity: $SEVERITY"
         
-        # Execute the scan using our tested CLI tool
+        # Execute the scan using our workflow-compatible script
         SCAN_SUCCESS=false
         
-        # Create output directory
-        mkdir -p "reports/scan-${{ github.run_number }}"
+        python scripts/run_workflow_scan.py \
+          --regions "$REGIONS" \
+          --accounts "$ACCOUNTS" \
+          --services "$SERVICES" \
+          --output-format "$FORMATS" \
+          --compliance-frameworks "$FRAMEWORKS" \
+          --min-severity "$SEVERITY" \
+          --output-dir "reports/scan-${{ github.run_number }}" \
+          --verbose \
+          2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
         
-        # Try the tested CLI tool first (most reliable)
-        if [ -f "features/cli-tool/scripts/iamcloud_cli.py" ]; then
-          echo "🔧 Using IAMCloud CLI tool..."
-          python features/cli-tool/scripts/iamcloud_cli.py \
-            --regions "$REGIONS" \
-            --accounts "$ACCOUNTS" \
-            --services "$SERVICES" \
-            --output-format html \
-            --output-dir "reports/scan-${{ github.run_number }}" \
-            --verbose \
-            2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
-        fi
-        
-        # Fallback: Use organization scanner
-        if [ "$SCAN_SUCCESS" = "false" ] && [ -f "scripts/run_organization_scan.py" ]; then
-          echo "🏢 Fallback: Using organization scanner..."
-          python scripts/run_organization_scan.py 2>&1 | tee logs/IAMCloud-fallback-${{ github.run_number }}.log && SCAN_SUCCESS=true
-        fi
-        
-        # If still no success, create a basic status report
+        # If the main scan script failed, create a basic report for artifacts  
         if [ "$SCAN_SUCCESS" = "false" ]; then
-          echo "⚠️  Creating status report..."
-          echo '<!DOCTYPE html><html><head><title>IAMCloud Scan Report</title></head><body>' > "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '<h1>IAMCloud Security Scan</h1>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '<p><strong>Status:</strong> Execution attempted but scan logic needs integration</p>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '<p><strong>GitHub Run:</strong> ${{ github.run_number }}</p>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '<p><strong>Timestamp:</strong> '$(date)'</p>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '<p>Check the Actions logs for more details.</p>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
-          echo '</body></html>' >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "⚠️  Main scan failed, creating status report..."
+          mkdir -p "reports/scan-${{ github.run_number }}"
+          
+          # Create a simple HTML status report
+          echo "<h1>IAMCloud Scan Status</h1>" > "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Scan execution failed. Check logs for details.</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>GitHub Run: ${{ github.run_number }}</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          echo "<p>Timestamp: $(date)</p>" >> "reports/scan-${{ github.run_number }}/scan_status.html"
+          
+          echo "✅ Created execution status report"
         fi
         
-        # List generated files for debugging
-        echo "📁 Report files generated:"
-        find "reports/scan-${{ github.run_number }}" -type f -exec ls -la {} \; 2>/dev/null || echo "No files found in reports directory"
+        # List all files that were actually created for debugging
+        echo "📁 Files in reports directory:"
+        find "reports/scan-${{ github.run_number }}" -type f 2>/dev/null | head -20 || echo "No report files found"
         
         # Capture scan results for outputs
         SCAN_EXIT_CODE=$?
@@ -287,21 +278,16 @@ jobs:
       if: always()  # Upload even if scan failed
       with:
         name: IAMCloud-reports-${{ github.run_number }}
-        path: |
-          reports/scan-${{ github.run_number }}/
-          logs/
+        path: reports/scan-${{ github.run_number }}/
         retention-days: 30
-        compression-level: 6
         if-no-files-found: warn
     
-    - name: Upload all logs (fallback)
+    - name: Upload scan logs
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: IAMCloud-logs-${{ github.run_number }}
-        path: |
-          logs/
-          *.log
+        path: logs/
         retention-days: 7
         if-no-files-found: ignore
         compression-level: 6
