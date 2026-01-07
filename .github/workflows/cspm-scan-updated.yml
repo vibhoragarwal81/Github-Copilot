@@ -34,17 +34,7 @@ on:
           - 'iam,ec2'
           - 'iam,vpc'
           - 'ec2,vpc,s3'
-          - 'all'
-      
-      report_formats:
-        description: 'Report output formats'
-        required: true
-        default: 'json,html,csv'
-        type: choice
-        options:
-          - 'html'
-          - 'json,html'
-          - 'json,html,csv'
+          - 'only iam'
           - 'all'
       
       compliance_frameworks:
@@ -168,32 +158,30 @@ jobs:
         REGIONS="${{ github.event.inputs.aws_regions || 'us-east-1' }}"
         ACCOUNTS="${{ github.event.inputs.aws_accounts || '123456789012' }}"
         SERVICES="${{ github.event.inputs.services || 'iam,ec2,vpc,s3' }}"
-        FORMATS="${{ github.event.inputs.report_formats || 'json,html' }}"
         FRAMEWORKS="${{ github.event.inputs.compliance_frameworks || 'CIS-AWS,NIST-CSF' }}"
         SEVERITY="${{ github.event.inputs.severity_filter || 'info' }}"
         
-        # Handle 'all' options
+        # Handle 'all' and 'only iam' options
         if [ "$SERVICES" = "all" ]; then
           SERVICES="iam,ec2,vpc,s3,organization"
-        fi
-        
-        if [ "$FORMATS" = "all" ]; then
-          FORMATS="json,html,csv"
+        elif [ "$SERVICES" = "only iam" ]; then
+          SERVICES="iam"
         fi
         
         echo "📋 Scan Configuration:"
         echo "  Regions: $REGIONS"
         echo "  Accounts: $ACCOUNTS" 
         echo "  Services: $SERVICES"
-        echo "  Formats: $FORMATS"
         echo "  Frameworks: $FRAMEWORKS"
         echo "  Min Severity: $SEVERITY"
+        echo "  Output Format: HTML (default)"
         
         # Execute the scan with better single account control
         SCAN_SUCCESS=false
         
         # Create output directory first
         mkdir -p "reports/scan-${{ github.run_number }}"
+        mkdir -p "logs"
         
         # For single account scans, use the more direct approach
         if [ "$ACCOUNTS" != "organization" ]; then
@@ -201,22 +189,21 @@ jobs:
           echo "📋 Account being scanned: $ACCOUNTS"
           echo "🔐 Current assumed role ARN: $(aws sts get-caller-identity --query 'Arn' --output text)"
           
-          # Use the main scanner directly for single account
+          # Use the main scanner directly for single account (now with valid arguments)
           python src/main.py \
+            --account-id "$ACCOUNTS" \
             --regions "$REGIONS" \
             --services "$SERVICES" \
-            --account-id "$ACCOUNTS" \
             --output-dir "reports/scan-${{ github.run_number }}" \
+            --verbose \
             2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
         else
           echo "🏢 Running organization-wide scan..."
-          python scripts/run_workflow_scan.py \
+          # Use organization scanning with regions and services support
+          python src/main.py \
+            --scan-organization \
             --regions "$REGIONS" \
-            --accounts "$ACCOUNTS" \
             --services "$SERVICES" \
-            --output-format "$FORMATS" \
-            --compliance-frameworks "$FRAMEWORKS" \
-            --min-severity "$SEVERITY" \
             --output-dir "reports/scan-${{ github.run_number }}" \
             --verbose \
             2>&1 | tee logs/IAMCloud-scan-${{ github.run_number }}.log && SCAN_SUCCESS=true
@@ -299,13 +286,6 @@ jobs:
           echo "  Total findings: $TOTAL_COUNT"
         else
           echo "⚠️  No JSON report found for metrics parsing"
-          echo "critical_count=0" >> $GITHUB_OUTPUT
-          echo "high_count=0" >> $GITHUB_OUTPUT
-          echo "total_count=0" >> $GITHUB_OUTPUT
-        fi 
-          echo "  Total findings: $TOTAL_COUNT"
-        else
-          echo "⚠️ No JSON report found for results parsing"
           echo "critical_count=0" >> $GITHUB_OUTPUT
           echo "high_count=0" >> $GITHUB_OUTPUT
           echo "total_count=0" >> $GITHUB_OUTPUT

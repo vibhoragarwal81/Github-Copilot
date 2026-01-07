@@ -121,6 +121,8 @@ async def main():
     parser.add_argument('--config', type=str, default='config/config.yaml', help='Configuration file path')
     parser.add_argument('--output-dir', type=str, default='reports', help='Output directory for reports')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--regions', type=str, help='AWS regions to scan (comma-separated)')
+    parser.add_argument('--services', type=str, help='AWS services to scan (comma-separated)')
     
     args = parser.parse_args()
     
@@ -133,6 +135,21 @@ async def main():
         # Load configuration
         config = Config(args.config)
         config.set('output_directory', args.output_dir)
+        
+        # Handle regions filter
+        if args.regions:
+            region_list = [region.strip() for region in args.regions.split(',')]
+            config.set('aws_regions', region_list)
+            logger.info(f"Scanning regions: {region_list}")
+        
+        # Handle services filter  
+        if args.services:
+            if args.services == 'only iam':
+                service_list = ['iam']
+            else:
+                service_list = [service.strip() for service in args.services.split(',')]
+            config.set('enabled_services', service_list)
+            logger.info(f"Scanning services: {service_list}")
         
         # Initialize scanner
         scanner = CSPMScanner(config)
